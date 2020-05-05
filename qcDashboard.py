@@ -72,7 +72,9 @@ app.layout = html.Div(children=[
             id='quantitative-graph'
             ),
 
-    ]),
+    ],
+        className="row flex-display",
+    ),
 
     html.Div([
         dcc.Graph(id='segmentationDisplay')
@@ -117,7 +119,7 @@ def update_figure(organName, comparisonMetric):
     )
 
     if 'DSC' in columnName:
-        rangeVal = [0, 1]
+        rangeVal = [0, 1.01]
     else:
         rangeVal = [0, y_val.max()*1.03]
 
@@ -142,8 +144,9 @@ def load_data(clickData, organName, comparisonMetric):
         print(highlightedColumn)
         rowData = db.loc[(db['SCAN_DATE'] == clickData['points'][0]['x']) & (
                     db[highlightedColumn] == clickData['points'][0]['y'] * 10)]
-        mask, mask_test, scan, bbox = loadContourQAImg(rowData[contourFile_ref].iloc[0], rowData[contourFile_test].iloc[0],
-                                                  rowData['SCAN_FILE'].iloc[0], HDF5_DIR, returnMask=False)
+        mask, mask_test, scan, bbox = loadContourQAImg(rowData[contourFile_ref].iloc[0],
+                                                       rowData[contourFile_test].iloc[0],
+                                                       rowData['SCAN_FILE'].iloc[0], HDF5_DIR, returnMask=False)
         bbox = [bbox[2], bbox[3], bbox[4], bbox[5], bbox[0], bbox[1]]
 
         t1 = time.time()
@@ -154,6 +157,7 @@ def load_data(clickData, organName, comparisonMetric):
         scan_norm = normalize_equalize_smooth_CT(scan.squeeze(), 1, WL)
         scan = scan_norm.transpose(2, 3, 0, 1)
         mask = mask.transpose(1, 2, 0, 3)
+        mask_test = mask_test.transpose(1, 2, 0, 3)
 
         centroid_contour = [int(np.mean([bbox[0], bbox[1] + 1])), int(np.mean([bbox[2], bbox[3] + 1])),
                             int(np.mean([bbox[4], bbox[5] + 1]))]
@@ -174,14 +178,14 @@ def load_data(clickData, organName, comparisonMetric):
         #                centroid_contour[1] - int(height / 2):centroid_contour[1] + int(height / 2),
         #                int(bbox[4]) - 5:int(bbox[5]) + 5]
         #
-        # mask_arr_auto = autoC[centroid_contour[0] - int(height / 2):centroid_contour[0] + int(height / 2),
-        #                 centroid_contour[1] - int(height / 2):centroid_contour[1] + int(height / 2),
-        #                 int(bbox[4]) - 5:int(bbox[5]) + 5]
+        mask_arr_auto = mask_test[centroid_contour[0] - int(height / 2):centroid_contour[0] + int(height / 2),
+                        centroid_contour[1] - int(height / 2):centroid_contour[1] + int(height / 2),
+                        int(bbox[4]) - 5:int(bbox[5]) + 5]
 
         coloredMask = np.zeros(np.shape(scan_arr))
         h, w, l, c = np.shape(coloredMask)
         coloredMask[:, :, :, 0] = (mask_arr_add.squeeze() * 255).astype('uint8')
-        # coloredMask[:, :, :, 1] = (mask_arr_auto * 255).astype('uint8')
+        coloredMask[:, :, :, 1] = (mask_arr_auto.squeeze() * 255).astype('uint8')
         # coloredMask[:, :, :, 2] = (mask_arr_sub * -255).astype('uint8')
         displayImg = np.zeros(np.shape(scan_arr.astype('uint8')))
 
@@ -207,7 +211,7 @@ def load_data(clickData, organName, comparisonMetric):
             "y": 0,
             "steps": [
                 {
-                    "args": [[f.name], frame_args(0)],
+                    "args": [[f.name], frame_args(1)],
                     "label": str(k),
                     "method": "animate",
                 }

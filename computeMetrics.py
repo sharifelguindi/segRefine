@@ -1,4 +1,4 @@
-import pickle
+from compress_pickle import dump, load
 from shapely.geometry import *
 from shapely.ops import cascaded_union
 from shapely.ops import split
@@ -168,8 +168,7 @@ def compute_comparison(ref, test, imageSize, sliceLocations, coordTransform):
     # Loop through min/max in z for comparison of structures
     for z in np.arange(min_z, max_z + pxSpacing[2], pxSpacing[2]):
         z = np.round(z, 2)
-        # print(z)
-        slicePts_ref  = [item for item in ref if item[0] == z]
+        slicePts_ref = [item for item in ref if item[0] == z]
         slicePts_test = [item for item in test if item[0] == z]
         pxTransform = coordTransform[:, :, np.where(coordTransform[2, 3, :] == z)][:, :, 0, 0]
         pxTransform_inv = np.linalg.pinv(pxTransform)
@@ -292,39 +291,39 @@ def compute_comparison(ref, test, imageSize, sliceLocations, coordTransform):
             centroid_point_np = np.array([centroid_point.x, centroid_point.y, z])
             test_weighted_centroid_sum = test_weighted_centroid_sum + (testpolygon.area * centroid_point_np)
 
-    if not (not testpolygon and not refpolygon):
-        ref_centroid = ref_weighted_centroid_sum / total_ref_area
-        test_centroid = test_weighted_centroid_sum / total_ref_area
 
-        if len(distance_ref_to_test) > 1:
-            hd = np.max([np.max(distance_ref_to_test), np.max(distance_test_to_ref)])
-            ninety_five_hd = np.max(
-                [np.percentile(distance_ref_to_test, 95), np.percentile(distance_test_to_ref, 95)])
-            ave_dist = (np.mean(distance_ref_to_test) + np.mean(distance_test_to_ref)) / 2
-            median_dist = (np.median(distance_ref_to_test) + np.median(distance_test_to_ref)) / 2
-        else:
-            hd = 0
-            ninety_five_hd = 0
-            ave_dist = 0
-            median_dist = 0
+    ref_centroid = ref_weighted_centroid_sum / total_ref_area
+    test_centroid = test_weighted_centroid_sum / total_ref_area
 
-        tau = [1, 3]
-        VDSC, surface_DSC, HD_95 = compute_metrics(mask_ref[:, :, :, 0], mask_test[:, :, :, 0],
-                                                   spacing_mm=pxSpacing, surface_tolerances=tau)
-        SEN = total_true_positive_area / total_ref_area
-        pctFP = total_false_positive_area / total_test_area
-        dsc = (2 * total_true_positive_area) / (total_ref_area + total_test_area)
-        results = [total_added_path_length, total_true_positive_area * pxSpacing[2],
-                   total_false_negative_area * pxSpacing[2],
-                   total_false_positive_area * pxSpacing[2], SEN,
-                   pctFP, dsc, hd, ninety_five_hd, ave_dist, median_dist,
-                   ref_centroid, test_centroid, surface_DSC[0], surface_DSC[1],
-                   HD_95, total_ref_area * pxSpacing[2], total_test_area * pxSpacing[2]]
+    if len(distance_ref_to_test) > 1:
+        hd = np.max([np.max(distance_ref_to_test), np.max(distance_test_to_ref)])
+        ninety_five_hd = np.max(
+            [np.percentile(distance_ref_to_test, 95), np.percentile(distance_test_to_ref, 95)])
+        ave_dist = (np.mean(distance_ref_to_test) + np.mean(distance_test_to_ref)) / 2
+        median_dist = (np.median(distance_ref_to_test) + np.median(distance_test_to_ref)) / 2
     else:
-        # Return Null if both polygons are empty (in case of error)
-        results = [a*0 for a in range(0, 19)]
+        hd = 0
+        ninety_five_hd = 0
+        ave_dist = 0
+        median_dist = 0
 
-    return results, mask_ref - mask_test
+    tau = [1, 3]
+    VDSC, surface_DSC, HD_95 = compute_metrics(mask_ref[:, :, :, 0], mask_test[:, :, :, 0],
+                                               spacing_mm=pxSpacing, surface_tolerances=tau)
+    SEN = total_true_positive_area / total_ref_area
+    if total_test_area > 0:
+        pctFP = total_false_positive_area / total_test_area
+    else:
+        pctFP = 0
+    dsc = (2 * total_true_positive_area) / (total_ref_area + total_test_area)
+    results = [total_added_path_length, total_true_positive_area * pxSpacing[2],
+               total_false_negative_area * pxSpacing[2],
+               total_false_positive_area * pxSpacing[2], SEN,
+               pctFP, dsc, hd, ninety_five_hd, ave_dist, median_dist,
+               ref_centroid, test_centroid, surface_DSC[0], surface_DSC[1],
+               HD_95, total_ref_area * pxSpacing[2], total_test_area * pxSpacing[2]]
+
+    return results, mask_ref, mask_test
 
 
 def main():
@@ -356,26 +355,28 @@ def main():
 
             for col in data.columns:
                 for s in sl:
-                    if s in col:
+                    if s == col.split('_')[0]:
                         organname = s
                         sl.remove(s)
-                        if organname + toCompare[1] in data:
-                            ref = pickle.load(
-                                open(os.path.join(HDF5_DIR, data[organname + toCompare[1]].iloc[0]), 'rb'))
+                        if organname + '_' + toCompare[1] in data:
+                            ref = load(open(os.path.join(HDF5_DIR, data[organname + '_' + toCompare[1]].iloc[0]), 'rb'),
+                                       compression='gzip')
                         else:
                             ref = []
 
-                        if organname + toCompare[0] in data:
-                            test = pickle.load(open(os.path.join(HDF5_DIR, data[organname + toCompare[0]].iloc[0]), 'rb'))
+                        if organname + '_' + toCompare[0] in data:
+                            test = load(open(os.path.join(HDF5_DIR, data[organname + '_' + toCompare[0]].iloc[0]), 'rb'),
+                                        compression='gzip')
                         else:
                             test = []
-
+                        # Structure was contoured, no auto-generated
                         if ref and not test:
-                            test = ref
+                            test = ref.copy()
                             for k in range(0, len(test)):
                                 test[k] = (test[k][0], [])
+                        # Structure was auto-generated, but deleted
                         if test and not ref:
-                            ref = test
+                            ref = test.copy()
                             for k in range(0, len(ref)):
                                 ref[k] = (ref[k][0], [])
 

@@ -6,18 +6,15 @@
 #
 # Usage:
 #
-#   python dicomrt_to_traindata.py \
+#   python exportForTraining.py \
 #   --numShards='number of pieces to break dataset into for transfer purposes
 #   --rawDir='path\to\data\'
 #   --saveDir='path\to\save\'
 #   --datasetName='structure_name_to_search_for'
 
 from __future__ import print_function
-
 import pickle
-
 import numpy as np
-import tensorflow as tf
 import h5py
 import sys
 import glob
@@ -27,14 +24,23 @@ import scipy.io as sio
 from imgAug import *
 from functions import find
 
+import collections
+import tensorflow as tf
+
 flags = tf.app.flags
 FLAGS = flags.FLAGS
 
-flags.DEFINE_boolean('jue', False,
-                     'Set to true to collect data based on .mat CERR files.')
+tf.app.flags.DEFINE_enum('image_format', 'png', ['jpg', 'jpeg', 'png'],
+                         'Image format.')
+
+tf.app.flags.DEFINE_enum('label_format', 'png', ['png'],
+                         'Segmentation label format.')
+
+flags.DEFINE_boolean('pointArray', True,
+                     'Set to true to collect data based on dicom-like data stored.')
 
 flags.DEFINE_boolean('MHD', False,
-                     'Set to true to collect data based on .mat CERR files.')
+                     'Set to true to collect data based on .MHD files.')
 
 flags.DEFINE_integer('numShards', 100,
                      'Split train/val data into chucks if large dateset >2-3000 (default, 1)')
@@ -47,6 +53,122 @@ flags.DEFINE_string('saveDir', 'G:\\Projects\\DicomToMask\\datasets\\',
 
 flags.DEFINE_string('datasetName', 'ProstateUpdate_16_99_PosOnly_Aug',
                     'string name of structure to export')
+
+# A map from image format to expected data format.
+_IMAGE_FORMAT_MAP = {
+    'jpg': b'jpeg',
+    'jpeg': b'jpeg',
+    'png': b'png',
+}
+
+
+class ImageReader(object):
+  """Helper class that provides TensorFlow image coding utilities."""
+
+  def __init__(self, image_format='jpeg', channels=3):
+    """Class constructor.
+
+    Args:
+      image_format: Image format. Only 'jpeg', 'jpg', or 'png' are supported.
+      channels: Image channels.
+    """
+    with tf.Graph().as_default():
+      self._decode_data = tf.placeholder(dtype=tf.string)
+      self._image_format = image_format
+      self._session = tf.Session()
+      if self._image_format in ('jpeg', 'jpg'):
+        self._decode = tf.image.decode_jpeg(self._decode_data,
+                                            channels=channels)
+      elif self._image_format == 'png':
+        self._decode = tf.image.decode_png(self._decode_data,
+                                           channels=channels)
+
+  def read_image_dims(self, image_data):
+    """Reads the image dimensions.
+
+    Args:
+      image_data: string of image data.
+
+    Returns:
+      image_height and image_width.
+    """
+    image = self.decode_image(image_data)
+    return image.shape[:2]
+
+  def decode_image(self, image_data):
+    """Decodes the image data string.
+
+    Args:
+      image_data: string of image data.
+
+    Returns:
+      Decoded image data.
+
+    Raises:
+      ValueError: Value of image channels not supported.
+    """
+    image = self._session.run(self._decode,
+                              feed_dict={self._decode_data: image_data})
+    if len(image.shape) != 3 or image.shape[2] not in (1, 3):
+      raise ValueError('The image channels not supported.')
+
+    return image
+
+
+def _int64_list_feature(values):
+  """Returns a TF-Feature of int64_list.
+
+  Args:
+    values: A scalar or list of values.
+
+  Returns:
+    A TF-Feature.
+  """
+  if not isinstance(values, collections.Iterable):
+    values = [values]
+
+  return tf.train.Feature(int64_list=tf.train.Int64List(value=values))
+
+
+def _bytes_list_feature(values):
+  """Returns a TF-Feature of bytes.
+
+  Args:
+    values: A string.
+
+  Returns:
+    A TF-Feature.
+  """
+  return tf.train.Feature(bytes_list=tf.train.BytesList(value=[values]))
+
+
+def image_seg_to_tfexample(image_data, filename, height, width, seg_data):
+  """Converts one image/segmentation pair to tf example.
+
+  Args:
+    image_data: string of image data.
+    filename: image filename.
+    height: image height.
+    width: image width.
+    seg_data: string of semantic segmentation data.
+
+  Returns:
+    tf example of one image/segmentation pair.
+  """
+  return tf.train.Example(features=tf.train.Features(feature={
+      'image/encoded': _bytes_list_feature(image_data),
+      'image/filename': _bytes_list_feature(filename),
+      'image/format': _bytes_list_feature(
+          _IMAGE_FORMAT_MAP[FLAGS.image_format]),
+      'image/height': _int64_list_feature(height),
+      'image/width': _int64_list_feature(width),
+      'image/channels': _int64_list_feature(3),
+      'image/segmentation/class/encoded': (
+          _bytes_list_feature(seg_data)),
+      'image/segmentation/class/format': _bytes_list_feature(
+          str.encode(FLAGS.label_format,'utf-8')),
+  }))
+
 
 def create_tfrecord(structure_path):
 
@@ -112,6 +234,7 @@ def create_tfrecord(structure_path):
 
     return
 
+
 def _convert_dataset(dataset_split, _NUM_SHARDS, structure_path, plane):
   """Converts the specified dataset split to TFRecord format.
 
@@ -172,7 +295,6 @@ def _convert_dataset(dataset_split, _NUM_SHARDS, structure_path, plane):
     sys.stdout.write('\n')
     sys.stdout.flush()
 
-# create_tfrecord(os.path.join(FLAGS.saveDir, FLAGS.datasetName))
 
 def main(unused_argv):
 
@@ -180,7 +302,7 @@ def main(unused_argv):
     p_num = 1
     incomplete = []
 
-    if FLAGS.jue:
+    if FLAGS.pointArray:
         patient_sets = find('*.mat', data_path)
         patient_sets.sort()
         for patient in patient_sets:
@@ -283,6 +405,7 @@ def main(unused_argv):
             data_export_MR_3D(scan, mask, FLAGS.saveDir, p_num, FLAGS.datasetName)
             p_num = p_num + 1
         create_tfrecord(os.path.join(FLAGS.saveDir, FLAGS.datasetName))
+
     else:
         patient_sets = find('mask_total*', data_path)
         patient_sets.sort()

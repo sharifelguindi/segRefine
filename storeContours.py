@@ -3,7 +3,7 @@ import pydicom
 import os
 import numpy as np
 import pandas as pd
-import pickle
+from compress_pickle import dump, load
 from datetime import datetime
 
 
@@ -99,7 +99,7 @@ for triggerFile in triggerFiles:
                 else:
                     print('Same Image Series UID Exists: ' + filename)
 
-        elif 'RTSTRUCT' in directory.upper() and 'UNETSA' in directory.upper():
+        elif 'RTSTRUCT' in directory.upper() and 'ATLAS' in directory.upper():
 
             dcmFiles = find('*.dcm', os.path.join(triggerFile.strip('.trigger'), directory))
             print(directory)
@@ -108,17 +108,18 @@ for triggerFile in triggerFiles:
                 timeStamp = dataset.StructureSetDate + '-' + dataset.StructureSetTime.replace('.', '-')
                 if not (db['MRN'] == dataset.PatientID).any():
                     db = db.append({'MRN': dataset.PatientID}, ignore_index=True)
-                structureData, structureMatches = store_rtss_as_structureinstance(dcmFiles[0], sl, sl_alt, as_polygon=False)
+                structureData, structureMatches = store_rtss_as_structureinstance(dcmFiles[0], sl, sl_alt,
+                                                                                  as_polygon=False)
                 for structure in structureData:
-                    filename = structure[0] + '-' + timeStamp + '.p'
-                    pickle.dump(structure[1], open(os.path.join(HDF5_DIR, filename), 'wb'))
+                    filename = structure[0] + '-' + timeStamp + '.gz'
+                    dump(structure[1], open(os.path.join(HDF5_DIR, filename), 'wb'), compression='gzip')
                     column_name = structure[0].upper() + '_' + structureTypes[0]
                     if not (db[column_name] == filename).any():
                         db.at[db.index[db['MRN'] == dataset.PatientID].tolist()[0], column_name] = filename
                     else:
                         print('Structure Already in Database:' + structure[0])
             else:
-                print('Multiple RTSTRUCT files in directory: ' + directory)
+                print('Multiple RTSTRUCT files labled the same in directory: ' + directory)
             print('...')
             print('Row updated for patient directory: ' + directory)
             db.to_excel(contourDatabase, index=False)
@@ -132,17 +133,18 @@ for triggerFile in triggerFiles:
                 timeStamp = dataset.StructureSetDate + '-' + dataset.StructureSetTime.replace('.', '-')
                 if not (db['MRN'] == dataset.PatientID).any():
                     db = db.append({'MRN': dataset.PatientID}, ignore_index=True)
-                structureData, structureMatches = store_rtss_as_structureinstance(dcmFiles[0], sl, sl_alt, as_polygon=False)
+                structureData, structureMatches = store_rtss_as_structureinstance(dcmFiles[0], sl, sl_alt,
+                                                                                  as_polygon=False)
                 for structure in structureData:
-                    filename = structure[0] + '-' + timeStamp + '.p'
-                    pickle.dump(structure[1], open(os.path.join(HDF5_DIR, filename), 'wb'))
+                    filename = structure[0] + '-' + timeStamp + '.gz'
+                    dump(structure[1], open(os.path.join(HDF5_DIR, filename), 'wb'), compression='gzip')
                     column_name = structure[0].upper() + '_' + structureTypes[1]
                     if not (db[column_name] == filename).any():
                         db.at[db.index[db['MRN'] == dataset.PatientID].tolist()[0], column_name] = filename
                     else:
                         print('Structure Already in Database:' + structure[0])
             else:
-                print('Multiple RTSTRUCT files in directory: ' + directory)
+                print('Multiple RTSTRUCT files labled the same in directory: ' + directory)
             print('...')
             print('Row updated for patient directory: ' + directory)
             db.to_excel(contourDatabase, index=False)
