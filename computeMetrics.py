@@ -310,7 +310,11 @@ def compute_comparison(ref, test, imageSize, sliceLocations, coordTransform):
     tau = [1, 3]
     VDSC, surface_DSC, HD_95 = compute_metrics(mask_ref[:, :, :, 0], mask_test[:, :, :, 0],
                                                spacing_mm=pxSpacing, surface_tolerances=tau)
-    SEN = total_true_positive_area / total_ref_area
+    if total_ref_area > 0:
+        SEN = total_true_positive_area / total_ref_area
+    else:
+        SEN = 0
+
     if total_test_area > 0:
         pctFP = total_false_positive_area / total_test_area
     else:
@@ -355,43 +359,44 @@ def main():
 
             for col in data.columns:
                 for s in sl:
-                    if s == col.split('_')[0]:
-                        organname = s
-                        sl.remove(s)
-                        if organname + '_' + toCompare[1] in data:
-                            ref = load(open(os.path.join(HDF5_DIR, data[organname + '_' + toCompare[1]].iloc[0]), 'rb'),
-                                       compression='gzip')
-                        else:
-                            ref = []
+                    if np.size(col.split('_')) > 1:
+                        if (s == col.split('_')[0]) or (s == col.split('_')[0] + '_' + col.split('_')[1]):
+                            organname = s
+                            sl.remove(s)
+                            if organname + '_' + toCompare[1] in data:
+                                ref = load(open(os.path.join(HDF5_DIR, data[organname + '_' + toCompare[1]].iloc[0]), 'rb'),
+                                           compression='gzip')
+                            else:
+                                ref = []
 
-                        if organname + '_' + toCompare[0] in data:
-                            test = load(open(os.path.join(HDF5_DIR, data[organname + '_' + toCompare[0]].iloc[0]), 'rb'),
-                                        compression='gzip')
-                        else:
-                            test = []
-                        # Structure was contoured, no auto-generated
-                        if ref and not test:
-                            test = ref.copy()
-                            for k in range(0, len(test)):
-                                test[k] = (test[k][0], [])
-                        # Structure was auto-generated, but deleted
-                        if test and not ref:
-                            ref = test.copy()
-                            for k in range(0, len(ref)):
-                                ref[k] = (ref[k][0], [])
+                            if organname + '_' + toCompare[0] in data:
+                                test = load(open(os.path.join(HDF5_DIR, data[organname + '_' + toCompare[0]].iloc[0]), 'rb'),
+                                            compression='gzip')
+                            else:
+                                test = []
+                            # Structure was contoured, no auto-generated
+                            if ref and not test:
+                                test = ref.copy()
+                                for k in range(0, len(test)):
+                                    test[k] = (test[k][0], [])
+                            # Structure was auto-generated, but deleted
+                            if test and not ref:
+                                ref = test.copy()
+                                for k in range(0, len(ref)):
+                                    ref[k] = (ref[k][0], [])
 
-                        if ref and test:
-                            print('Computing metrics for organ: ' + organname)
-                            scores, mask_ref = compute_comparison(ref, test, imageSize, sliceLocations, coordTransform)
-                            results_structures = {}
-                            k = 0
-                            for metric in comparisonMetrics:
-                                metricName = organname + '_' + metric
-                                results_structures[metricName] = str(scores[k]).strip('[').strip(']').lstrip().replace(' ','_')
-                                k = k + 1
+                            if ref and test:
+                                print('Computing metrics for organ: ' + organname)
+                                scores, mask_ref, mask_test = compute_comparison(ref, test, imageSize, sliceLocations, coordTransform)
+                                results_structures = {}
+                                k = 0
+                                for metric in comparisonMetrics:
+                                    metricName = organname + '_' + metric
+                                    results_structures[metricName] = str(scores[k]).strip('[').strip(']').lstrip().replace(' ','_')
+                                    k = k + 1
 
-                            dbRow = pd.Series(results_structures)
-                            db.loc[rowVal, dbRow.index] = dbRow
+                                dbRow = pd.Series(results_structures)
+                                db.loc[rowVal, dbRow.index] = dbRow
         print('done')
     db.to_excel(contourDatabase, index=False)
 
