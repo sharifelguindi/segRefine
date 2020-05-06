@@ -1,4 +1,4 @@
-from functions import find, store_rtss_as_structureinstance, getKey, store_arrays_hdf5, load_arrays_hdf5
+from functions import find, store_rtss_as_structureinstance, getKey, store_arrays_hdf5
 import pydicom
 import os
 import numpy as np

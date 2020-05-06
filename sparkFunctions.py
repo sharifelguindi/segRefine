@@ -423,13 +423,13 @@ def compareContours(ref_str, test_str, scanData):
     test_raw = ast.literal_eval(test_str)
 
     ref = []
-    for key, value in ref_raw:
+    for key, value in ref_raw.items():
         if len(value) >= 1:
             ref.append([np.float(value[2]), value])
         ref = sorted(ref, key=getKey)
 
     test = []
-    for key, value in test_raw:
+    for key, value in test_raw.items():
         if len(value) >= 1:
             ref.append([np.float(value[2]), value])
         test = sorted(test, key=getKey)

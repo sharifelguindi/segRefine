@@ -7,7 +7,6 @@ import pandas as pd
 import numpy as np
 import cv2
 import time
-
 from functions import loadContourQAImg
 from imgAug import normalize_equalize_smooth_CT, window_image
 

@@ -12,6 +12,7 @@ import pickle
 from operator import itemgetter
 from PIL import Image, ImageDraw
 from imgAug import bbox2_3D
+from compress_pickle import dump, load
 
 
 def store_arrays_hdf5(data, HDF5_DIR, filename):
@@ -80,7 +81,7 @@ def loadContour(contourFile_ref, scanFile, HDF5_DIR, returnMask=True):
     imageSize = scanData['imageSize']
     sliceLocations = scanData['sliceLocations']
     scan = scanData['imageMatrix'] + scanData['pixelConversion'][0]
-    ref = pickle.load(open(os.path.join(HDF5_DIR, contourFile_ref), 'rb'))
+    ref = load(open(os.path.join(HDF5_DIR, contourFile_ref), 'rb'), compression='gzip')
     max_z = max(ref, key=itemgetter(0))[0]
     min_z = min(ref, key=itemgetter(0))[0]
 
@@ -128,8 +129,8 @@ def loadContourQAImg(contourFile_ref, contourFile_test, scanFile, HDF5_DIR, retu
     imageSize = scanData['imageSize']
     sliceLocations = scanData['sliceLocations']
     scan = scanData['imageMatrix'] + scanData['pixelConversion'][0]
-    ref = pickle.load(open(os.path.join(HDF5_DIR, contourFile_ref), 'rb'))
-    test = pickle.load(open(os.path.join(HDF5_DIR, contourFile_test), 'rb'))
+    ref = load(open(os.path.join(HDF5_DIR, contourFile_ref), 'rb'), compression='gzip')
+    test = load(open(os.path.join(HDF5_DIR, contourFile_test), 'rb'), compression='gzip')
 
     max_z = max(max(ref, key=itemgetter(0))[0], max(test, key=itemgetter(0))[0])
     min_z = min(min(ref, key=itemgetter(0))[0], min(test, key=itemgetter(0))[0])
