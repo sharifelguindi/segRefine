@@ -1,18 +1,16 @@
 import fnmatch
 import os
 import pandas as pd
-from shapely.geometry import *
 import matplotlib.pyplot as plt
 import numpy as np
 import os.path
 import win32com.client
-import pydicom
 import h5py
-import pickle
 from operator import itemgetter
 from PIL import Image, ImageDraw
 from imgAug import bbox2_3D
-from compress_pickle import dump, load
+from compress_pickle import load
+
 
 
 def store_arrays_hdf5(data, HDF5_DIR, filename):
@@ -38,10 +36,6 @@ def load_arrays_hdf5(HDF5_DIR, filename):
             data[key] = np.array(f[key])
 
     return data
-
-
-def getKey(item):
-    return item[0]
 
 
 def is_number(s):
@@ -211,25 +205,6 @@ def get_single_metric_by_group(df, structList, metricName, rowIndex):
     return dff.append(metricDict, ignore_index=True), metricDict
 
 
-def plot_polygons_and_linestrings(structure_to_plot, color_for_plot='#00000'):
-    if isinstance(structure_to_plot, MultiLineString):
-        for bit_to_plot in structure_to_plot:
-            x, y = bit_to_plot.xy
-            plt.plot(x, y, color=color_for_plot)
-    elif isinstance(structure_to_plot, MultiPolygon):
-        for bit_to_plot in structure_to_plot:
-            x, y = bit_to_plot.boundary.xy
-            plt.plot(x, y, color=color_for_plot)
-    elif isinstance(structure_to_plot, Polygon):
-        x, y = structure_to_plot.boundary.xy
-        plt.plot(x, y, color=color_for_plot)
-    elif isinstance(structure_to_plot, LineString):
-        x, y = structure_to_plot.xy
-        plt.plot(x, y, color=color_for_plot)
-    else:
-        print('Unable to plot structure type: ', type(structure_to_plot))
-
-
 def addMetricData(dbFileName):
     df = pd.read_excel(dbFileName)
     filtered_col = [col for col in df if col.split(',')[0].endswith('DSC')]
@@ -294,128 +269,6 @@ def plotTrainingProgress(modelDir, metric):
     plt.legend(fontsize='xx-small')
     plt.show()
     return data
-
-
-def store_rtss_as_structureinstance(rtssFilepath, contourList, contourList_alt, as_polygon=False):
-
-    rtss = pydicom.read_file(rtssFilepath)
-
-    # Logic for matching structures compared with master list (contourList)
-    # TODO implement regex matching for better structure filtering
-    structureMatches = []
-    for structROI in rtss.StructureSetROISequence:
-        structName = structROI.ROIName
-        structID = structROI.ROINumber
-        structContourSet = None
-
-        # Find contour set in rtss
-        for contourSet in rtss.ROIContourSequence:
-            if contourSet.ReferencedROINumber == structID:
-                structContourSet = contourSet
-                break
-        if structContourSet is not None:
-            if hasattr(structContourSet, 'ContourSequence'):
-                numberOfMatches = 0
-                lastMatchName = 0
-                # print('Checking if structure matches known list: {:s}'.format(structName))
-
-                alt_name_index = 0
-                if contourList:
-                    for name in contourList:
-                        if name.upper() == structName.upper():
-                            numberOfMatches = numberOfMatches + 1
-                            lastMatchName = name
-                        elif contourList_alt[alt_name_index].upper() == structName.upper():
-                            numberOfMatches = numberOfMatches + 1
-                            lastMatchName = name
-                        alt_name_index = alt_name_index + 1
-
-                    if numberOfMatches == 1:
-                        structureMatches.append((lastMatchName, structID, structName))
-                    elif numberOfMatches == 0:
-                        print('\tNo match for structure {:s}\n\tSkipping structure'.format(structName))
-                    elif numberOfMatches > 1:
-                        print('\tMultiple matches for structure {:s}\n\tSkipping structure'.format(structName))
-                else:
-                    structureMatches.append((structName, structID, structName))
-
-
-    # Create python list of polygon dictionaries for each matched structure
-    structureData = []
-    for idx, matchIDS in enumerate(structureMatches):
-        clinicalContourName, structID, structName = matchIDS
-        print(clinicalContourName)
-        cur_contour_set = None
-        for contour_set in rtss.ROIContourSequence:
-            if contour_set.ReferencedROINumber == structID:
-                cur_contour_set = contour_set
-                break
-
-        if as_polygon:
-            cur_polygon_tuple = []
-            cur_z_slices = []
-            if cur_contour_set is not None:
-                # get the list of z-values for the reference set
-                for cur_contour_slice in cur_contour_set.ContourSequence:
-                    n_cur_pts = int(cur_contour_slice.NumberOfContourPoints)
-                    if n_cur_pts >= 3:
-                        cur_contour = cur_contour_slice.ContourData
-                        cur_z_slices.append(cur_contour[2])
-                # round to 1 decimal place (0.1mm) to make finding a match more robust
-                cur_z_slices = np.round(cur_z_slices, 2)
-                cur_z_slices = np.unique(cur_z_slices)
-
-            for z_value in cur_z_slices:
-                cur_polygon = None
-                for cur_contour_slice in cur_contour_set.ContourSequence:
-                    n_cur_pts = int(cur_contour_slice.NumberOfContourPoints)
-                    if n_cur_pts >= 3:
-                        cur_contour = cur_contour_slice.ContourData
-                        if np.round(cur_contour[2], 2) == z_value:
-                            # make 2D contours
-                            cur_contour_2_d = np.zeros((n_cur_pts, 2))
-                            for i in range(0, n_cur_pts):
-                                cur_contour_2_d[i][0] = float(cur_contour[i * 3])
-                                cur_contour_2_d[i][1] = float(cur_contour[i * 3 + 1])
-                            if cur_polygon is None:
-                                # Make points into Polygon
-                                cur_polygon = Polygon(LinearRing(cur_contour_2_d))
-                            else:
-                                # Turn next set of points into a Polygon
-                                this_cur_polygon = Polygon(LinearRing(cur_contour_2_d))
-                                # Attempt to fix any self-intersections in the resulting polygon
-                                if not this_cur_polygon.is_valid:
-                                    this_cur_polygon = this_cur_polygon.buffer(0)
-                                if cur_polygon.contains(this_cur_polygon):
-                                    # if the new polygon is inside the old one, chop it out
-                                    cur_polygon = cur_polygon.difference(this_cur_polygon)
-                                elif cur_polygon.within(this_cur_polygon):
-                                    # if the new and vice versa
-                                    cur_polygon = this_cur_polygon.difference(cur_polygon)
-                                else:
-                                    # otherwise it is a floating blob to add
-                                    cur_polygon = cur_polygon.union(this_cur_polygon)
-                            # Attempt to fix any self-intersections in the resulting polygon
-                            if cur_polygon is not None:
-                                if not cur_polygon.is_valid:
-                                    cur_polygon = cur_polygon.buffer(0)
-                cur_polygon_tuple.append([z_value, cur_polygon])
-            cur_polygon_tuple = sorted(cur_polygon_tuple, key=getKey)
-            structureData.append((clinicalContourName, cur_polygon_tuple))
-
-        else:
-            curTuple = []
-            if cur_contour_set is not None:
-                # get the list of z-values for current contour
-                for cur_contour_slice in cur_contour_set.ContourSequence:
-                    n_cur_pts = int(cur_contour_slice.NumberOfContourPoints)
-                    if n_cur_pts >= 1:
-                        curTuple.append([np.float(cur_contour_slice.ContourData[2]), cur_contour_slice.ContourData])
-            curTuple = sorted(curTuple, key=getKey)
-            if curTuple:
-                structureData.append((clinicalContourName, curTuple))
-
-    return structureData, structureMatches
 
 
 def main():

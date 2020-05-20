@@ -51,17 +51,16 @@ def compute_metrics(mask_gt, mask_pred, spacing_mm=(3, 0.6, 0.6), surface_tolera
     return DSC, surface_DSC, HD_95
 
 
-def poly2mask(slicePts_ref, pxTransform_inv):
-
+def poly2mask(slicePts_ref, pxTransform_inv, imageSize):
     if slicePts_ref:
         n_cur_pts = int(len(slicePts_ref[0][1]) / 3)
         cur_contour = slicePts_ref[0][1]
         cur_contour_2_d = []
         for i in range(0, n_cur_pts):
             coord = [float(cur_contour[i * 3]), float(cur_contour[i * 3 + 1]), float(cur_contour[i * 3 + 2]), 1]
-            pxCoord = np.matmul(pxTransform_inv,coord)
+            pxCoord = np.matmul(pxTransform_inv, coord)
             cur_contour_2_d.append((np.round(pxCoord[0]), np.round(pxCoord[1])))
-        img = Image.new('L', (512, 512), 0)
+        img = Image.new('L', (imageSize[1], imageSize[2]), 0)
         ImageDraw.Draw(img).polygon(cur_contour_2_d, outline=1, fill=1)
         mask = np.array(img)
 
@@ -165,7 +164,7 @@ def get_added_path_length(ref_poly, contracted_poly, expanded_poly, debug=False)
 
 
 def compute_comparison(ref, test, imageSize, sliceLocations, coordTransform):
-
+    rndDig = 3
     total_added_path_length = 0
     total_true_positive_area = 0
     total_false_positive_area = 0
@@ -180,139 +179,155 @@ def compute_comparison(ref, test, imageSize, sliceLocations, coordTransform):
     max_z = max(max(ref, key=itemgetter(0))[0], max(test, key=itemgetter(0))[0])
     min_z = min(min(ref, key=itemgetter(0))[0], min(test, key=itemgetter(0))[0])
 
-    pxSpacing = [np.round(np.mean(coordTransform[0, 0, :]), 2),
-                 np.round(np.mean(coordTransform[1, 1, :]), 2),
-                 np.round(np.mean(np.diff(coordTransform[2, 3, :])), 2)]
+    pxSpacing = [np.round(np.mean(coordTransform[0, 0, :]), rndDig),
+                 np.round(np.mean(coordTransform[1, 1, :]), rndDig),
+                 np.round(np.mean(np.diff(coordTransform[2, 3, :])), rndDig)]
 
     mask_ref = np.zeros(imageSize)
     mask_test = np.zeros(imageSize)
 
     # Loop through min/max in z for comparison of structures
     for z in np.arange(min_z, max_z + pxSpacing[2], pxSpacing[2]):
-        z = np.round(z, 2)
-        slicePts_ref = [item for item in ref if item[0] == z]
-        slicePts_test = [item for item in test if item[0] == z]
-        pxTransform = coordTransform[:, :, np.where(coordTransform[2, 3, :] == z)][:, :, 0, 0]
-        pxTransform_inv = np.linalg.pinv(pxTransform)
+        rndDig = 3
+        z = np.round(z, rndDig)
+        if z <= sliceLocations[-1]:
+            slicePts_ref = [item for item in ref if item[0] == z]
+            slicePts_test = [item for item in test if item[0] == z]
+            zLoc = np.where(np.round(coordTransform[2, 3, :], rndDig) == z)
 
-        refpolygon = None
-        if slicePts_ref:
-            if slicePts_ref[0][1]:
-                n_cur_pts = int(len(slicePts_ref[0][1]) / 3)
-                cur_contour = slicePts_ref[0][1]
-                cur_contour_2_d = np.zeros((n_cur_pts, 2))
-                for i in range(0, n_cur_pts):
-                    cur_contour_2_d[i][0] = float(cur_contour[i * 3])
-                    cur_contour_2_d[i][1] = float(cur_contour[i * 3 + 1])
-                if refpolygon is None:
-                    # Make points into Polygon
-                    refpolygon = Polygon(LinearRing(cur_contour_2_d))
+            # Verify z location through continual rounding for robustness
+            if zLoc[0][0] >= 0:
+                pxTransform = coordTransform[:, :, zLoc[0][0]]
+            else:
+                rndDig = 2
+                z = np.round(z, rndDig)
+                zLoc = np.where(np.round(coordTransform[2, 3, :], rndDig) == z)
+                if zLoc[0][0] >= 0:
+                    pxTransform = coordTransform[:, :, zLoc[0][0]]
                 else:
-                    # Turn next set of points into a Polygon
-                    this_cur_polygon = Polygon(LinearRing(cur_contour_2_d))
-                    # Attempt to fix any self-intersections in the resulting polygon
-                    if not this_cur_polygon.is_valid:
-                        this_cur_polygon = this_cur_polygon.buffer(0)
-                    if refpolygon.contains(this_cur_polygon):
-                        # if the new polygon is inside the old one, chop it out
-                        refpolygon = refpolygon.difference(this_cur_polygon)
-                    elif refpolygon.within(this_cur_polygon):
-                        # if the new and vice versa
-                        refpolygon = this_cur_polygon.difference(refpolygon)
+                    rndDig = 1
+                    z = np.round(z, rndDig)
+                    zLoc = np.where(np.round(coordTransform[2, 3, :], rndDig) == z)
+                    pxTransform = coordTransform[:, :, zLoc[0][0]]
+
+            pxTransform_inv = np.linalg.pinv(pxTransform)
+            refpolygon = None
+            if slicePts_ref:
+                if slicePts_ref[0][1]:
+                    n_cur_pts = int(len(slicePts_ref[0][1]) / 3)
+                    cur_contour = slicePts_ref[0][1]
+                    cur_contour_2_d = np.zeros((n_cur_pts, 2))
+                    for i in range(0, n_cur_pts):
+                        cur_contour_2_d[i][0] = float(cur_contour[i * 3])
+                        cur_contour_2_d[i][1] = float(cur_contour[i * 3 + 1])
+                    if refpolygon is None:
+                        # Make points into Polygon
+                        refpolygon = Polygon(LinearRing(cur_contour_2_d))
                     else:
-                        # otherwise it is a floating blob to add
-                        refpolygon = refpolygon.union(this_cur_polygon)
-                # Attempt to fix any self-intersections in the resulting polygon
-                if refpolygon is not None:
-                    if not refpolygon.is_valid:
-                        refpolygon = refpolygon.buffer(0)
-                mask_ref[np.where(sliceLocations == z), :, :, 0] = poly2mask(slicePts_ref, pxTransform_inv)
-
-        testpolygon = None
-        if slicePts_test:
-            if slicePts_test[0][1]:
-                n_cur_pts = int(len(slicePts_test[0][1]) / 3)
-                cur_contour = slicePts_test[0][1]
-                cur_contour_2_d = np.zeros((n_cur_pts, 2))
-                for i in range(0, n_cur_pts):
-                    cur_contour_2_d[i][0] = float(cur_contour[i * 3])
-                    cur_contour_2_d[i][1] = float(cur_contour[i * 3 + 1])
-                if testpolygon is None:
-                    # Make points into Polygon
-                    testpolygon = Polygon(LinearRing(cur_contour_2_d))
-                else:
-                    # Turn next set of points into a Polygon
-                    this_cur_polygon = Polygon(LinearRing(cur_contour_2_d))
+                        # Turn next set of points into a Polygon
+                        this_cur_polygon = Polygon(LinearRing(cur_contour_2_d))
+                        # Attempt to fix any self-intersections in the resulting polygon
+                        if not this_cur_polygon.is_valid:
+                            this_cur_polygon = this_cur_polygon.buffer(0)
+                        if refpolygon.contains(this_cur_polygon):
+                            # if the new polygon is inside the old one, chop it out
+                            refpolygon = refpolygon.difference(this_cur_polygon)
+                        elif refpolygon.within(this_cur_polygon):
+                            # if the new and vice versa
+                            refpolygon = this_cur_polygon.difference(refpolygon)
+                        else:
+                            # otherwise it is a floating blob to add
+                            refpolygon = refpolygon.union(this_cur_polygon)
                     # Attempt to fix any self-intersections in the resulting polygon
-                    if not this_cur_polygon.is_valid:
-                        this_cur_polygon = this_cur_polygon.buffer(0)
-                    if testpolygon.contains(this_cur_polygon):
-                        # if the new polygon is inside the old one, chop it out
-                        testpolygon = testpolygon.difference(this_cur_polygon)
-                    elif testpolygon.within(this_cur_polygon):
-                        # if the new and vice versa
-                        testpolygon = this_cur_polygon.difference(testpolygon)
+                    if refpolygon is not None:
+                        if not refpolygon.is_valid:
+                            refpolygon = refpolygon.buffer(0)
+                    mask_ref[np.where(np.round(sliceLocations, rndDig) == z), :, :, 0] = poly2mask(slicePts_ref, pxTransform_inv, imageSize)
+
+            testpolygon = None
+            if slicePts_test:
+                if slicePts_test[0][1]:
+                    n_cur_pts = int(len(slicePts_test[0][1]) / 3)
+                    cur_contour = slicePts_test[0][1]
+                    cur_contour_2_d = np.zeros((n_cur_pts, 2))
+                    for i in range(0, n_cur_pts):
+                        cur_contour_2_d[i][0] = float(cur_contour[i * 3])
+                        cur_contour_2_d[i][1] = float(cur_contour[i * 3 + 1])
+                    if testpolygon is None:
+                        # Make points into Polygon
+                        testpolygon = Polygon(LinearRing(cur_contour_2_d))
                     else:
-                        # otherwise it is a floating blob to add
-                        testpolygon = testpolygon.union(this_cur_polygon)
-                # Attempt to fix any self-intersections in the resulting polygon
-                if testpolygon is not None:
-                    if not testpolygon.is_valid:
-                        testpolygon = testpolygon.buffer(0)
-                mask_test[np.where(sliceLocations == z), :, :, 0] = poly2mask(slicePts_test, pxTransform_inv)
+                        # Turn next set of points into a Polygon
+                        this_cur_polygon = Polygon(LinearRing(cur_contour_2_d))
+                        # Attempt to fix any self-intersections in the resulting polygon
+                        if not this_cur_polygon.is_valid:
+                            this_cur_polygon = this_cur_polygon.buffer(0)
+                        if testpolygon.contains(this_cur_polygon):
+                            # if the new polygon is inside the old one, chop it out
+                            testpolygon = testpolygon.difference(this_cur_polygon)
+                        elif testpolygon.within(this_cur_polygon):
+                            # if the new and vice versa
+                            testpolygon = this_cur_polygon.difference(testpolygon)
+                        else:
+                            # otherwise it is a floating blob to add
+                            testpolygon = testpolygon.union(this_cur_polygon)
+                    # Attempt to fix any self-intersections in the resulting polygon
+                    if testpolygon is not None:
+                        if not testpolygon.is_valid:
+                            testpolygon = testpolygon.buffer(0)
+                    mask_test[np.where(np.round(sliceLocations, rndDig) == z), :, :, 0] = poly2mask(slicePts_test, pxTransform_inv, imageSize)
 
-        if refpolygon is not None and testpolygon is not None:
+            if refpolygon is not None and testpolygon is not None:
 
-            # go get some distance measures
-            # these get added to a big list so that we can calculate the 95% HD
-            [ref_to_test, test_to_ref] = get_distance_measures(refpolygon, testpolygon, 0.05)
-            distance_ref_to_test.extend(ref_to_test)
-            distance_test_to_ref.extend(test_to_ref)
+                # go get some distance measures
+                # these get added to a big list so that we can calculate the 95% HD
+                [ref_to_test, test_to_ref] = get_distance_measures(refpolygon, testpolygon, 0.05)
+                distance_ref_to_test.extend(ref_to_test)
+                distance_test_to_ref.extend(test_to_ref)
 
-            # apply tolerance ring margin to test with added path length
-            expanded_poly = cascaded_union(testpolygon.buffer(tolerance, 32, 1, 1))
-            contracted_poly = cascaded_union(testpolygon.buffer(-tolerance, 32, 1, 1))
+                # apply tolerance ring margin to test with added path length
+                expanded_poly = cascaded_union(testpolygon.buffer(tolerance, 32, 1, 1))
+                contracted_poly = cascaded_union(testpolygon.buffer(-tolerance, 32, 1, 1))
 
-            # add intersection of contours
-            contour_intersection = refpolygon.intersection(testpolygon)
-            total_true_positive_area = total_true_positive_area + contour_intersection.area
-            total_false_negative_area = total_false_negative_area + \
-                                        (refpolygon.difference(contour_intersection)).area
-            total_false_positive_area = total_false_positive_area + \
-                                        (testpolygon.difference(contour_intersection)).area
-            total_test_area = total_test_area + testpolygon.area
-            total_ref_area = total_ref_area + refpolygon.area
-            centroid_point = refpolygon.centroid
-            centroid_point_np = np.array([centroid_point.x, centroid_point.y, z])
-            ref_weighted_centroid_sum = ref_weighted_centroid_sum + (refpolygon.area * centroid_point_np)
-            centroid_point = testpolygon.centroid
-            centroid_point_np = np.array([centroid_point.x, centroid_point.y, z])
-            test_weighted_centroid_sum = test_weighted_centroid_sum + (testpolygon.area * centroid_point_np)
+                # add intersection of contours
+                contour_intersection = refpolygon.intersection(testpolygon)
+                total_true_positive_area = total_true_positive_area + contour_intersection.area
+                total_false_negative_area = total_false_negative_area + \
+                                            (refpolygon.difference(contour_intersection)).area
+                total_false_positive_area = total_false_positive_area + \
+                                            (testpolygon.difference(contour_intersection)).area
+                total_test_area = total_test_area + testpolygon.area
+                total_ref_area = total_ref_area + refpolygon.area
+                centroid_point = refpolygon.centroid
+                centroid_point_np = np.array([centroid_point.x, centroid_point.y, z])
+                ref_weighted_centroid_sum = ref_weighted_centroid_sum + (refpolygon.area * centroid_point_np)
+                centroid_point = testpolygon.centroid
+                centroid_point_np = np.array([centroid_point.x, centroid_point.y, z])
+                test_weighted_centroid_sum = test_weighted_centroid_sum + (testpolygon.area * centroid_point_np)
 
-            # add length of remain contours
+                # add length of remain contours
 
-            added_path = get_added_path_length(refpolygon, contracted_poly, expanded_poly)
-            total_added_path_length = total_added_path_length + added_path
+                added_path = get_added_path_length(refpolygon, contracted_poly, expanded_poly)
+                total_added_path_length = total_added_path_length + added_path
 
-        elif refpolygon is not None and testpolygon is None:
-            # if no corresponding slice, then add the whole ref length
-            # print('Adding path for whole contour')
-            path_length = refpolygon.length
-            total_added_path_length = total_added_path_length + path_length
-            # also the whole slice is false negative
-            total_false_negative_area = total_false_negative_area + refpolygon.area
-            total_ref_area = total_ref_area + refpolygon.area
-            centroid_point = refpolygon.centroid
-            centroid_point_np = np.array([centroid_point.x, centroid_point.y, z])
-            ref_weighted_centroid_sum = ref_weighted_centroid_sum + (refpolygon.area * centroid_point_np)
+            elif refpolygon is not None and testpolygon is None:
+                # if no corresponding slice, then add the whole ref length
+                # print('Adding path for whole contour')
+                path_length = refpolygon.length
+                total_added_path_length = total_added_path_length + path_length
+                # also the whole slice is false negative
+                total_false_negative_area = total_false_negative_area + refpolygon.area
+                total_ref_area = total_ref_area + refpolygon.area
+                centroid_point = refpolygon.centroid
+                centroid_point_np = np.array([centroid_point.x, centroid_point.y, z])
+                ref_weighted_centroid_sum = ref_weighted_centroid_sum + (refpolygon.area * centroid_point_np)
 
-        elif refpolygon is None and testpolygon is not None:
-            total_false_positive_area = total_false_positive_area + testpolygon.area
-            total_test_area = total_test_area + testpolygon.area
-            centroid_point = testpolygon.centroid
-            centroid_point_np = np.array([centroid_point.x, centroid_point.y, z])
-            test_weighted_centroid_sum = test_weighted_centroid_sum + (testpolygon.area * centroid_point_np)
-
+            elif refpolygon is None and testpolygon is not None:
+                total_false_positive_area = total_false_positive_area + testpolygon.area
+                total_test_area = total_test_area + testpolygon.area
+                centroid_point = testpolygon.centroid
+                centroid_point_np = np.array([centroid_point.x, centroid_point.y, z])
+                test_weighted_centroid_sum = test_weighted_centroid_sum + (testpolygon.area * centroid_point_np)
 
     ref_centroid = ref_weighted_centroid_sum / total_ref_area
     test_centroid = test_weighted_centroid_sum / total_ref_area
@@ -341,7 +356,12 @@ def compute_comparison(ref, test, imageSize, sliceLocations, coordTransform):
         pctFP = total_false_positive_area / total_test_area
     else:
         pctFP = 0
-    dsc = (2 * total_true_positive_area) / (total_ref_area + total_test_area)
+
+    if total_test_area > 0 and total_ref_area > 0:
+        dsc = (2 * total_true_positive_area) / (total_ref_area + total_test_area)
+    else:
+        dsc = 0
+
     results = [total_added_path_length, total_true_positive_area * pxSpacing[2],
                total_false_negative_area * pxSpacing[2],
                total_false_positive_area * pxSpacing[2], SEN,
@@ -350,6 +370,131 @@ def compute_comparison(ref, test, imageSize, sliceLocations, coordTransform):
                HD_95, total_ref_area * pxSpacing[2], total_test_area * pxSpacing[2]]
 
     return results, mask_ref, mask_test
+
+
+def store_rtss_as_structureinstance(rtssFilepath, contourList, contourList_alt, as_polygon=False):
+    rtss = pydicom.read_file(rtssFilepath)
+    rndDig = 3
+    # Logic for matching structures compared with master list (contourList)
+    # TODO implement regex matching for better structure filtering
+    structureMatches = []
+    for structROI in rtss.StructureSetROISequence:
+        structName = structROI.ROIName
+        structID = structROI.ROINumber
+        structContourSet = None
+
+        # Find contour set in rtss
+        for contourSet in rtss.ROIContourSequence:
+            try:
+                if contourSet.ReferencedROINumber == structID:
+                    structContourSet = contourSet
+                    break
+            except AttributeError:
+                print("ReferenceROI not found")
+
+        if structContourSet is not None:
+            if hasattr(structContourSet, 'ContourSequence'):
+                numberOfMatches = 0
+                lastMatchName = 0
+                alt_name_index = 0
+
+                if structName.upper()[-2:] == '_F':
+                    structName = structName[0:-2]
+                if contourList:
+                    for name in contourList:
+                        if name.upper() == structName.upper():
+                            numberOfMatches = numberOfMatches + 1
+                            lastMatchName = name
+                        elif contourList_alt[alt_name_index].upper() == structName.upper():
+                            numberOfMatches = numberOfMatches + 1
+                            lastMatchName = name
+                        alt_name_index = alt_name_index + 1
+
+                    if numberOfMatches == 1:
+                        structureMatches.append((lastMatchName, structID, structName))
+                    elif numberOfMatches == 0:
+                        print('\tNo match for structure {:s}\n\tSkipping structure'.format(structName))
+                    elif numberOfMatches > 1:
+                        print('\tMultiple matches for structure {:s}\n\tSkipping structure'.format(structName))
+                else:
+                    structureMatches.append((structName, structID, structName))
+
+    # Create python list of polygon dictionaries for each matched structure
+    structureData = []
+    for idx, matchIDS in enumerate(structureMatches):
+        clinicalContourName, structID, structName = matchIDS
+        print(clinicalContourName)
+        cur_contour_set = None
+        for contour_set in rtss.ROIContourSequence:
+            if contour_set.ReferencedROINumber == structID:
+                cur_contour_set = contour_set
+                break
+
+        if as_polygon:
+            cur_polygon_tuple = []
+            cur_z_slices = []
+            if cur_contour_set is not None:
+                # get the list of z-values for the reference set
+                for cur_contour_slice in cur_contour_set.ContourSequence:
+                    n_cur_pts = int(cur_contour_slice.NumberOfContourPoints)
+                    if n_cur_pts >= 3:
+                        cur_contour = cur_contour_slice.ContourData
+                        cur_z_slices.append(cur_contour[2])
+                # round to 1 decimal place (0.1mm) to make finding a match more robust
+                cur_z_slices = np.round(cur_z_slices, rndDig)
+                cur_z_slices = np.unique(cur_z_slices)
+
+            for z_value in cur_z_slices:
+                cur_polygon = None
+                for cur_contour_slice in cur_contour_set.ContourSequence:
+                    n_cur_pts = int(cur_contour_slice.NumberOfContourPoints)
+                    if n_cur_pts >= 3:
+                        cur_contour = cur_contour_slice.ContourData
+                        if np.round(cur_contour[2], rndDig) == z_value:
+                            # make 2D contours
+                            cur_contour_2_d = np.zeros((n_cur_pts, 2))
+                            for i in range(0, n_cur_pts):
+                                cur_contour_2_d[i][0] = float(cur_contour[i * 3])
+                                cur_contour_2_d[i][1] = float(cur_contour[i * 3 + 1])
+                            if cur_polygon is None:
+                                # Make points into Polygon
+                                cur_polygon = Polygon(LinearRing(cur_contour_2_d))
+                            else:
+                                # Turn next set of points into a Polygon
+                                this_cur_polygon = Polygon(LinearRing(cur_contour_2_d))
+                                # Attempt to fix any self-intersections in the resulting polygon
+                                if not this_cur_polygon.is_valid:
+                                    this_cur_polygon = this_cur_polygon.buffer(0)
+                                if cur_polygon.contains(this_cur_polygon):
+                                    # if the new polygon is inside the old one, chop it out
+                                    cur_polygon = cur_polygon.difference(this_cur_polygon)
+                                elif cur_polygon.within(this_cur_polygon):
+                                    # if the new and vice versa
+                                    cur_polygon = this_cur_polygon.difference(cur_polygon)
+                                else:
+                                    # otherwise it is a floating blob to add
+                                    cur_polygon = cur_polygon.union(this_cur_polygon)
+                            # Attempt to fix any self-intersections in the resulting polygon
+                            if cur_polygon is not None:
+                                if not cur_polygon.is_valid:
+                                    cur_polygon = cur_polygon.buffer(0)
+                cur_polygon_tuple.append([z_value, cur_polygon])
+            cur_polygon_tuple = sorted(cur_polygon_tuple, key=getKey)
+            structureData.append((clinicalContourName, cur_polygon_tuple))
+
+        else:
+            curTuple = []
+            if cur_contour_set is not None:
+                # get the list of z-values for current contour
+                for cur_contour_slice in cur_contour_set.ContourSequence:
+                    n_cur_pts = int(cur_contour_slice.NumberOfContourPoints)
+                    if n_cur_pts >= 1:
+                        curTuple.append([np.float(cur_contour_slice.ContourData[2]), cur_contour_slice.ContourData])
+            curTuple = sorted(curTuple, key=getKey)
+            if curTuple:
+                structureData.append((clinicalContourName, curTuple))
+
+    return structureData, structureMatches
 
 
 # Input is list of all dcm Image file locations, from treatment summary json you can generate list like this:
@@ -362,7 +507,6 @@ def compute_comparison(ref, test, imageSize, sliceLocations, coordTransform):
 # associated Series UID that can link it to the appropriate structure instance json file
 
 def storeCTSeries(dcmFiles):
-
     arrayTuple = []
     for dcmFile in dcmFiles:
         dataset = pydicom.dcmread(dcmFile)
@@ -400,6 +544,7 @@ def storeCTSeries(dcmFiles):
 
     return data
 
+
 # Inputs: data returned from function storeCTSeries and 2 structure_instance strings.
 # You can generate ref_str and test_str like this:
 # ref_str = f[0]['latestMimInstance']
@@ -409,16 +554,15 @@ def storeCTSeries(dcmFiles):
 
 
 def compareContours(ref_str, test_str, scanData):
-
     comparisonMetrics = ['APL', 'TP volume', 'FN volume', 'FP volume', 'SEN', '%FP',
                          '3D DSC', '2D HD', '95% 2D HD', 'Ave 2D Dist', 'Median 2D Dist',
                          'Reference Centroid', 'Test Centroid', 'SDSC_1mm', 'SDSC_3mm',
                          'RobustHD_95', 'ref_vol', 'test_vol']
-
+    rndDig = 3
     coordTransform = scanData['coordinateSystemTransform']
     imageSize = scanData['imageSize']
     sliceLocations = scanData['sliceLocations']
-
+    sliceLocations = np.round(sliceLocations, rndDig)
     ref_raw = ast.literal_eval(ref_str)
     test_raw = ast.literal_eval(test_str)
 
@@ -431,7 +575,7 @@ def compareContours(ref_str, test_str, scanData):
     test = []
     for key, value in test_raw.items():
         if len(value) >= 1:
-            ref.append([np.float(value[2]), value])
+            test.append([np.float(value[2]), value])
         test = sorted(test, key=getKey)
 
     scores, mask_ref, mask_test = compute_comparison(ref, test, imageSize, sliceLocations, coordTransform)
