@@ -29,7 +29,7 @@ for struct in sl:
         columns.append(struct + '_' + structureType)
 
 # find DCM directories to process
-dcmDirectory = 'H:\\Treatment Planning\\Elguindi\\prostateSegAnalysis\\dicomStorage\\'
+dcmDirectory = 'H:\\Treatment Planning\\Elguindi\\HNAxCT\\clinicalDicom\\'
 dirList = [x[0] for x in os.walk(dcmDirectory)]
 
 # create pandas database, contourDatabase non-existent
@@ -160,56 +160,56 @@ for directory in dirList:
                     print('Row updated for patient directory: ' + directory)
                     db.to_excel(contourDatabase, index=False)
 
-    # # if RTSTRUCT file, store based on defined tag
-    # elif 'RTSTRUCT' in directory.upper() and 'AAAAATLAS' in directory.upper():
-    #
-    #     dcmFiles = find('*.dcm', os.path.join(triggerFile.strip('.trigger'), directory))
-    #     print(directory)
-    #     if len(dcmFiles) == 1:
-    #         dataset = pydicom.dcmread(dcmFiles[0])
-    #         timeStamp = dataset.StructureSetDate + '-' + dataset.StructureSetTime.replace('.', '-')
-    #         if not (db['MRN'] == dataset.PatientID).any():
-    #             db = db.append({'MRN': dataset.PatientID}, ignore_index=True)
-    #         structureData, structureMatches = store_rtss_as_structureinstance(dcmFiles[0], sl, sl_alt,
-    #                                                                           as_polygon=False)
-    #         for structure in structureData:
-    #             filename = structure[0] + '-' + timeStamp + '.gz'
-    #             dump(structure[1], open(os.path.join(HDF5_DIR, filename), 'wb'), compression='gzip')
-    #             column_name = structure[0].upper() + '_' + structureTypes[0]
-    #             if not (db[column_name] == filename).any():
-    #                 db.at[db.index[db['MRN'] == dataset.PatientID].tolist()[0], column_name] = filename
-    #             else:
-    #                 print('Structure Already in Database:' + structure[0])
-    #     else:
-    #         print('Multiple RTSTRUCT files labled the same in directory: ' + directory)
-    #     print('...')
-    #     print('Row updated for patient directory: ' + directory)
-    #     db.to_excel(contourDatabase, index=False)
-    #
-    # elif 'RTSTRUCT' in directory.upper() and 'BBBBB' in directory.upper():
-    #
-    #     dcmFiles = find('*.dcm', os.path.join(triggerFile.strip('.trigger'), directory))
-    #     print(directory)
-    #     if len(dcmFiles) == 1:
-    #         dataset = pydicom.dcmread(dcmFiles[0])
-    #         timeStamp = dataset.StructureSetDate + '-' + dataset.StructureSetTime.replace('.', '-')
-    #         if not (db['MRN'] == dataset.PatientID).any():
-    #             db = db.append({'MRN': dataset.PatientID}, ignore_index=True)
-    #         structureData, structureMatches = store_rtss_as_structureinstance(dcmFiles[0], sl, sl_alt,
-    #                                                                           as_polygon=False)
-    #         for structure in structureData:
-    #             filename = structure[0] + '-' + timeStamp + '.gz'
-    #             dump(structure[1], open(os.path.join(HDF5_DIR, filename), 'wb'), compression='gzip')
-    #             column_name = structure[0].upper() + '_' + structureTypes[1]
-    #             if not (db[column_name] == filename).any():
-    #                 db.at[db.index[db['MRN'] == dataset.PatientID].tolist()[0], column_name] = filename
-    #             else:
-    #                 print('Structure Already in Database:' + structure[0])
-    #     else:
-    #         print('Multiple RTSTRUCT files labled the same in directory: ' + directory)
-    #     print('...')
-    #     print('Row updated for patient directory: ' + directory)
-    #     db.to_excel(contourDatabase, index=False)
+    # if RTSTRUCT file, store based on defined tag
+    elif 'RTSTRUCT' in directory.upper() and 'ATLAS' in directory.upper():
+
+        dcmFiles = find('*.dcm', directory)
+        print(directory)
+        if len(dcmFiles) == 1:
+            dataset = pydicom.dcmread(dcmFiles[0])
+            timeStamp = dataset.StructureSetDate + '-' + dataset.StructureSetTime.replace('.', '-')
+            if not (db['MRN'] == dataset.PatientID).any():
+                db = db.append({'MRN': dataset.PatientID}, ignore_index=True)
+            structureData, structureMatches = store_rtss_as_structureinstance(dcmFiles[0], sl, sl_alt,
+                                                                              as_polygon=False)
+            for structure in structureData:
+                filename = structure[0] + '-' + timeStamp + '.gz'
+                dump(structure[1], open(os.path.join(HDF5_DIR, filename), 'wb'), compression='gzip')
+                column_name = structure[0].upper() + '_' + structureTypes[0]
+                if not (db[column_name] == filename).any():
+                    db.at[db.index[db['MRN'] == dataset.PatientID].tolist()[0], column_name] = filename
+                else:
+                    print('Structure Already in Database:' + structure[0])
+        else:
+            print('Multiple RTSTRUCT files labled the same in directory: ' + directory)
+        print('...')
+        print('Row updated for patient directory: ' + directory)
+        db.to_excel(contourDatabase, index=False)
+
+    elif 'RTSTRUCT' in directory.upper() and ('ECLIPSE' in directory.upper() or 'APPROVED' in directory.upper() or 'YY' in directory.upper() or 'FOR' in directory.upper()):
+
+        dcmFiles = find('*.dcm', directory)
+        print(directory)
+        if len(dcmFiles) == 1:
+            dataset = pydicom.dcmread(dcmFiles[0])
+            timeStamp = dataset.StructureSetDate + '-' + dataset.StructureSetTime.replace('.', '-')
+            if not (db['MRN'] == dataset.PatientID).any():
+                db = db.append({'MRN': dataset.PatientID}, ignore_index=True)
+            structureData, structureMatches = store_rtss_as_structureinstance(dcmFiles[0], sl, sl_alt,
+                                                                              as_polygon=False)
+            for structure in structureData:
+                filename = structure[0] + '-' + timeStamp + '.gz'
+                dump(structure[1], open(os.path.join(HDF5_DIR, filename), 'wb'), compression='gzip')
+                column_name = structure[0].upper() + '_' + structureTypes[1]
+                if not (db[column_name] == filename).any():
+                    db.at[db.index[db['MRN'] == dataset.PatientID].tolist()[0], column_name] = filename
+                else:
+                    print('Structure Already in Database:' + structure[0])
+        else:
+            print('Multiple RTSTRUCT files labled the same in directory: ' + directory)
+        print('...')
+        print('Row updated for patient directory: ' + directory)
+        db.to_excel(contourDatabase, index=False)
 
 
 

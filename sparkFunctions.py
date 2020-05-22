@@ -568,21 +568,24 @@ def compareContours(ref_str, test_str, scanData):
 
     ref = []
     for key, value in ref_raw.items():
-        if len(value) >= 1:
+        if len(value) >= 9:
             ref.append([np.float(value[2]), value])
         ref = sorted(ref, key=getKey)
 
     test = []
     for key, value in test_raw.items():
-        if len(value) >= 1:
+        if len(value) >= 9:
             test.append([np.float(value[2]), value])
         test = sorted(test, key=getKey)
 
-    scores, mask_ref, mask_test = compute_comparison(ref, test, imageSize, sliceLocations, coordTransform)
-    results_structures = {}
-    k = 0
-    for metric in comparisonMetrics:
-        results_structures[metric] = str(scores[k]).strip('[').strip(']').lstrip().replace(' ', '_')
-        k = k + 1
+    if ref and test:
+        scores, mask_ref, mask_test = compute_comparison(ref, test, imageSize, sliceLocations, coordTransform)
+        results_structures = {}
+        k = 0
+        for metric in comparisonMetrics:
+            results_structures[metric] = str(scores[k]).strip('[').strip(']').lstrip().replace(' ', '_')
+            k = k + 1
+    else:
+        results_structures = {}
 
     return results_structures

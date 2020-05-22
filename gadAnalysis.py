@@ -3,11 +3,12 @@ import pandas as pd
 from scipy.spatial import procrustes
 from scipy import linalg
 import matplotlib.pyplot as plt
+from matplotlib import cm
 from mpl_toolkits.mplot3d import Axes3D
 from functions import store_arrays_hdf5
-from scipy.optimize import minimize
+from scipy.optimize import minimize, basinhopping
 import random
-
+from timeit import default_timer as timer
 
 def get_affine_matrix(x):
     R_x = np.zeros((4, 4))
@@ -59,17 +60,30 @@ def get_inverse_affine(R, S, T):
     return R_inv, S_inv, T_inv
 
 
+def apply_invAffineTransform(R, S, T, g):
+    coord = np.ones((4, 1))
+    g_prime = np.copy(g)
+    for n in np.arange(0, np.shape(g)[1], 3):
+        coord[0:3, 0] = g[0, n:n + 3]
+        coord_1 = np.dot(T, coord)
+        coord_2 = np.dot(R, coord_1)
+        coord_3 = np.dot(S, coord_2)
+        g_prime[0, n:n + 3] = coord_3[0:3, 0]
+
+    return g_prime
+
+
 def apply_affineTransform(R, S, T, g):
     coord = np.ones((4, 1))
+    g_prime = np.copy(g)
     for n in np.arange(0, np.shape(g)[1], 3):
         coord[0:3, 0] = g[0, n:n + 3]
         coord_1 = np.dot(S, coord)
         coord_2 = np.dot(R, coord_1)
         coord_3 = np.dot(T, coord_2)
-        g[0, n:n + 3] = coord_3[0:3, 0]
-        g[0, n:n + 3] = coord[0:3, 0]
+        g_prime[0, n:n + 3] = coord_3[0:3, 0]
 
-    return g
+    return g_prime
 
 
 def procrustes_distance(mtx1, mtx2):
@@ -192,9 +206,9 @@ def generate_random_sample(g_sample, stdDev, maxIncorrect, incorrect_range, corr
         coord_new = np.zeros((np.shape(coord)))
         sd = stdDev[(3 * n):(3 * n + 3)]
         k = 0
+        sign = random.uniform(-1, 1)
+        sign = sign / np.absolute(sign)
         for s in sd:
-            sign = random.uniform(-1, 1)
-            sign = sign / np.absolute(sign)
             coord_new[k] = coord[k] + (sign * random.uniform(incorrect_range[0], incorrect_range[1]) * s)
             k = k + 1
         g_new[(3 * n):(3 * n + 3)] = coord_new
@@ -204,9 +218,9 @@ def generate_random_sample(g_sample, stdDev, maxIncorrect, incorrect_range, corr
         coord_new = np.zeros((np.shape(coord)))
         sd = stdDev[(3 * n):(3 * n + 3)]
         k = 0
+        sign = random.uniform(-1, 1)
+        sign = sign / np.absolute(sign)
         for s in sd:
-            sign = random.uniform(-1, 1)
-            sign = sign / np.absolute(sign)
             coord_new[k] = coord[k] + (sign * random.uniform(correct_range[0], correct_range[1]) * s)
             k = k + 1
         g_new[(3 * n):(3 * n + 3)] = coord_new
@@ -224,7 +238,51 @@ def cost_function(W, G_ex, G_bar, R, S, T, E_vec, B_weights):
     return cost_value
 
 
+def cost_minimization_function(x, G_ex, G_bar, E_vec, W):
+
+    R_x = np.zeros((4, 4))
+    R_y = np.zeros((4, 4))
+    R_z = np.zeros((4, 4))
+
+    R_x[0, 0:4] = [1, 0, 0, 0]
+    R_x[1, 0:4] = [0, np.cos(x[0]), (-1) * np.sin(x[0]), 0]
+    R_x[2, 0:4] = [0, np.sin(x[0]), np.cos(x[0]), 0]
+    R_x[3, 0:4] = [0, 0, 0, 1]
+
+    R_y[0, 0:4] = [np.cos(x[1]), 0, np.sin(x[1]), 0]
+    R_y[1, 0:4] = [0, 1, 0, 0]
+    R_y[2, 0:4] = [(-1) * np.sin(x[1]), 0, np.cos(x[1]), 0]
+    R_y[3, 0:4] = [0, 0, 0, 1]
+
+    R_z[0, 0:4] = [np.cos(x[2]), (-1) * np.sin(x[2]), 0, 0]
+    R_z[1, 0:4] = [np.sin(x[2]), np.cos(x[2]), 0, 0]
+    R_z[2, 0:4] = [0, 0, 1, 0]
+    R_z[3, 0:4] = [0, 0, 0, 1]
+
+    S = np.zeros((4, 4))
+    np.fill_diagonal(S, x[3])
+    S[3, 3] = 1
+
+    T = np.zeros((4, 4))
+    np.fill_diagonal(T, 1)
+    T[0, 3] = x[4]
+    T[1, 3] = x[5]
+    T[2, 3] = x[6]
+
+    R = np.dot(R_x, np.dot(R_y, R_z))
+
+    B_weights = np.reshape(x[7:], (11,))
+
+    G_com = G_bar + np.dot(B_weights, E_vec)
+    G_com_RST = apply_affineTransform(R, S, T, G_com)
+    delta_G = G_ex - G_com_RST
+    func_val = np.dot(W, delta_G.T)
+    cost_value = np.sum((np.sqrt(func_val ** 2)) / len(G_ex))
+
+    return cost_value
+
 def iterate_theta(x, G_ex, G_bar, E_vec, B_weights, W):
+
     R_x = np.zeros((4, 4))
     R_y = np.zeros((4, 4))
     R_z = np.zeros((4, 4))
@@ -269,21 +327,22 @@ def iterate_theta(x, G_ex, G_bar, E_vec, B_weights, W):
 
     coord = np.ones((4, 1))
     g = np.copy(G_ex)
+    g_prime = np.copy(g)
     for n in np.arange(0, np.shape(g)[1], 3):
         coord[0:3, 0] = g[0, n:n + 3]
-        coord_1 = np.dot(S_inv, coord)
+        coord_1 = np.dot(T_inv, coord)
         coord_2 = np.dot(R_inv, coord_1)
-        coord_3 = np.dot(T_inv, coord_2)
-        g[0, n:n + 3] = coord_3[0:3, 0]
+        coord_3 = np.dot(S_inv, coord_2)
+        g_prime[0, n:n + 3] = coord_3[0:3, 0]
 
-    delta_G = g - (G_bar + np.dot(B_weights, E_vec))
+    delta_G = g_prime - (G_bar + np.dot(B_weights, E_vec))
     arg = np.dot(W, delta_G.T)
 
     return np.sum((np.sqrt(arg ** 2)) / len(G_ex))
 
 
 def iterate_weights(R_inv, S_inv, T_inv, G_ex, G_bar, E_vec, B_weights, E_var):
-    G_ex_RST = apply_affineTransform(R_inv, S_inv, T_inv, G_ex)
+    G_ex_RST = apply_invAffineTransform(R_inv, S_inv, T_inv, G_ex)
     arg = (G_ex_RST - (G_bar + np.dot(B_weights, E_vec)))
     delta_B = np.dot(E_vec, arg.T)
     B_weights_updated = B_weights + delta_B.squeeze()
@@ -294,14 +353,13 @@ def iterate_weights(R_inv, S_inv, T_inv, G_ex, G_bar, E_vec, B_weights, E_var):
     return B_weights_updated
 
 
-def model_fit_process(W, G_ex, G_bar, x_init, E_vec, B_weights, E_var, method, max_steps, max_unchanged):
+def model_fit_process(W, G_ex, G_bar, x_init, E_vec, B_weights, E_var, method, max_steps, delta_stop):
     k = 0
     R, S, T = get_affine_matrix(x_init)
     cost_value = cost_function(W, G_ex, G_bar, R, S, T, E_vec, B_weights)
-    # print(cost_value)
     x = np.copy(x_init)
     for i in range(0, max_steps):
-        # print(x)
+        # results = basinhopping(iterate_theta, x, niter=10, minimizer_kwargs={"args": (G_ex, G_bar, E_vec, B_weights, W), "method": method})
         results = minimize(iterate_theta, x, args=(G_ex, G_bar, E_vec, B_weights, W), method=method)
         R_new, S_new, T_new = get_affine_matrix(results.x)
         R_inv_new, S_inv_new, T_inv_new = get_inverse_affine(R_new, S_new, T_new)
@@ -309,17 +367,10 @@ def model_fit_process(W, G_ex, G_bar, x_init, E_vec, B_weights, E_var, method, m
         cost_value_new = cost_function(W, G_ex, G_bar, R_new, S_new, T_new, E_vec, B_weights_new)
         B_weights = np.copy(B_weights_new)
         x = np.copy(results.x)
-        # print(cost_value_new)
-        if cost_value_new < cost_value:
-            cost_value = cost_value_new
-            k = 0
-        else:
-            k = k + 1
-
-        if k > max_unchanged:
-            break
-
-    return cost_value_new, B_weights, x
+        delta = np.absolute(cost_value - cost_value_new)
+        cost_value = cost_value_new
+        k = k + 1
+    return cost_value, B_weights, x
 
 
 def perf_measure(y_actual, y_hat):
@@ -339,6 +390,23 @@ def perf_measure(y_actual, y_hat):
             FN += 1
 
     return TP, FP, TN, FN
+
+
+def generate_random_x():
+
+    x = []
+    for angle in range(0, 3):
+        x.append(np.radians(random.uniform(0, 180)))
+
+    x.append(random.uniform(0.1, 1.1))
+
+    for shift in range(0, 3):
+        x.append(random.uniform(-0.5, 0.5))
+
+    for b in range(0, 11):
+        x.append(random.uniform(0.1, 1.0))
+
+    return np.asarray(x)
 
 
 def main():
@@ -404,16 +472,19 @@ def main():
             'G_bar': G_bar, 'standard_deviation': stdDev}
     store_arrays_hdf5(data, HDF5_DIR, filename)
 
+    m = 10
     mult = 1
     G_train = np.zeros((m * mult, n))
     g = 0
+    n_f = int(n/3)
+    num_iterations = 20
     correctList = []
     incorrectList = []
     for i in range(0, m):
         g_sample = G_cen[i, :]
         for k in range(0, mult):
             g_sample_mod, correct, incorrect = generate_random_sample(g_sample, stdDev, 4, [3, 6], [0, 0.5])
-            mean_shape = np.reshape(g_sample_mod, (7, 3))
+            mean_shape = np.reshape(g_sample_mod, (n_f, 3))
             mean_shape -= np.mean(mean_shape, 0)
             norm1 = np.linalg.norm(mean_shape)
             mean_shape /= norm1
@@ -424,34 +495,54 @@ def main():
 
     # Initialization Parameters
     GAD_score = []
-
-    for sample in range(0, m*5):
+    GAD_score_tot = []
+    for sample in range(0, m*mult):
         T1 = 0
         T2 = 0.01
-        max_steps = 1000
-        max_increase = 5
-        epsilon_delta = list(range(0, 7))
+        method = 'Powell' # Powell, BFGS, Nelder-Mead, CG
+        max_steps = 10
+        delta = 0.000001
+        epsilon_delta = list(range(0, n_f))
         G_ex = np.zeros((1, 21))
         G_ex[0, :] = G_train[sample, :]
         correct = correctList[sample]
         incorrect = incorrectList[sample]
 
-        alpha = np.radians(30)
-        beta = np.radians(20)
-        gamma = np.radians(10)
-        scale = 1.5
-        delta_x = 1
-        delta_y = 0.5
-        delta_z = 0.5
+        # alpha = np.radians(5)
+        # beta = np.radians(-5)
+        # gamma = np.radians(5)
+        # scale = 1.0
+        # delta_x = 0.005
+        # delta_y = -0.1
+        # delta_z = 0.1
 
-        x = [alpha, beta, gamma, scale, delta_x, delta_y, delta_z]
+        # for b in range(0, 11):
+        #     x.append(random.uniform(0.1, 1.0))
+
+        # x = [alpha, beta, gamma, scale, delta_x, delta_y, delta_z,
+        #      0.001, 0.001, 0.001, 0.001, 0.001, 0.001, 0.001, 0.001, 0.001, 0.001, 0.001]
         W = np.zeros((n, n))
         np.fill_diagonal(W, 1)
         B_weights = np.dot(G_bar, E_vec.T).squeeze()
-        epsilon_a, _, _ = model_fit_process(W, G_ex, G_bar, x, E_vec, B_weights, E_var, 'Powell', max_steps,
-                                            max_increase)
+        # B_weights = np.ones(11) * 0.001
+        # R, S, T = get_affine_matrix(x)
+        # G_ex_prime = apply_affineTransform(R, S, T, G_bar)
+        x_o = generate_random_x()
+        print('Starting analysis on sample: ' + str(sample))
+        start = timer()
+        results = basinhopping(cost_minimization_function, x_o, niter=num_iterations,
+                               minimizer_kwargs={"args": (G_ex, G_bar, E_vec, W), "method": method})
 
-        epsilon_delta = list(range(0, 7))
+        # epsilon_a, B_weights_opt, x_opt = model_fit_process(W, G_ex, G_bar, x, E_vec, B_weights, E_var, method,
+        #                                                     max_steps,
+        #                                                     delta)
+
+        # epsilon_a, B_weights_opt, x_opt = model_fit_process(W, G_ex, G_bar, x_opt, E_vec, B_weights_opt, E_var, method,
+        #                                                     max_steps,
+        #                                                     delta)
+        epsilon_a = np.copy(results.fun)
+        GAD_score_tot.append(epsilon_a)
+        epsilon_delta = list(range(0, n_f))
         for nn in epsilon_delta:
             W = np.zeros((n, n))
             np.fill_diagonal(W, 1)
@@ -459,36 +550,51 @@ def main():
             W[3 * nn, :] = zero_row
             W[3 * nn + 1, :] = zero_row
             W[3 * nn + 2, :] = zero_row
-            B_weights = np.dot(G_bar, E_vec.T).squeeze()
-            G_ex = np.zeros((1, 21))
-            G_ex[0, :] = G_train[sample, :]
-            cost_value_nn = model_fit_process(W, G_ex, G_bar, x, E_vec, B_weights, E_var, 'Powell', max_steps,
-                                              max_increase)
-            epsilon_delta[nn], _, _ = np.absolute(cost_value_nn - epsilon_a)
+            # B_weights = np.dot(G_bar, E_vec.T).squeeze()
+            # G_ex = np.zeros((1, 21))
+            # G_ex[0, :] = G_train[sample, :]
+            # cost_value_nn, B_weights_opt, x_opt = model_fit_process(W, G_ex, G_bar, x, E_vec, B_weights, E_var, method,
+            #                                                         max_steps,
+            #                                                         delta)
+            # cost_value_nn, B_weights_opt, x_opt = model_fit_process(W, G_ex, G_bar, x_opt, E_vec, B_weights_opt, E_var, method,
+            #                                                         max_steps,
+            #                                                         delta)
 
+            results_nn = basinhopping(cost_minimization_function, x_o, niter=num_iterations,
+                                   minimizer_kwargs={"args": (G_ex, G_bar, E_vec, W), "method": method})
+
+            cost_value_nn = np.copy(results_nn.fun)
+            epsilon_delta[nn] = np.absolute(cost_value_nn - epsilon_a)
+
+        end = timer()
         print('Compared Train Sample:' + str(sample))
+        print('Time taken: ' + str(end - start) + ' (s)')
         GAD_score.append(epsilon_delta)
 
-    sensitivity = np.zeros(m*5)
-    specificity = np.zeros(m*5)
+    sensitivity = np.zeros(m*mult)
+    specificity = np.zeros(m*mult)
     k = 0
-    T2 = 0.55
+    T2 = 0.4
     for prediction in GAD_score:
         score = np.asarray(prediction)
+        score = score/np.asarray(GAD_score_tot[k])
         score[score > T2] = 1
         score[score <= T2] = 0
 
-        ans = np.zeros(7)
+        ans = np.zeros(n_f)
         ans[incorrectList[k]] = 1
 
         TP, FP, TN, FN = perf_measure(ans, score)
 
-        specificity[k] = TN / (TN + FP)
-        zero_error = np.sum(ans) + np.sum(score)
-        if zero_error > 0:
-            sensitivity[k] = TP / (TP + FN)
+        if (TN + FP) == 0:
+            specificity[k] = 1
         else:
+            specificity[k] = TN / (TN + FP)
+
+        if (TP + FN) == 0:
             sensitivity[k] = 1
+        else:
+            sensitivity[k] = TP / (TP + FN)
 
         k = k + 1
     print(np.mean(sensitivity))
