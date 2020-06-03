@@ -29,7 +29,8 @@ for struct in sl:
         columns.append(struct + '_' + structureType)
 
 # find DCM directories to process
-dcmDirectory = 'H:\\Treatment Planning\\Elguindi\\HNAxCT\\clinicalDicom\\'
+# dcmDirectory = 'H:\\Treatment Planning\\Elguindi\\HNAxCT\\clinicalDicom\\'
+dcmDirectory = directory = 'S:\\AutoSeg\\ForAnalysis'
 dirList = [x[0] for x in os.walk(dcmDirectory)]
 
 # create pandas database, contourDatabase non-existent
@@ -52,7 +53,7 @@ for directory in dirList:
     print(directory.split(os.sep)[-1][0:2])
     structureSets = []
     dataset_ct = None
-    if 'CT' in directory.split(os.sep)[-1][0:2]:
+    if 'CT' in directory.split(os.sep)[-1][0:2] or 'MR' in directory.split(os.sep)[-1][0:2]:
         dcmFiles = find('*.dcm', directory)
         if dcmFiles:
             arrayTuple = []
@@ -61,7 +62,7 @@ for directory in dirList:
                 filename = dataset.StudyInstanceUID
                 file = os.path.join(HDF5_DIR, filename + '.h5')
                 if not os.path.isfile(file) or os.path.isfile(file):
-                    if dataset.Modality == 'CT':
+                    if dataset.Modality == 'CT' or dataset.Modality == 'MR':
                         pixelSpacing = dataset.PixelSpacing
                         pixelSpacing.append(dataset.SliceThickness)
                         ImagePosition = dataset.ImagePositionPatient
@@ -72,7 +73,9 @@ for directory in dirList:
                         coordinateSystemTransform[0:3, 0] = np.asarray(X) * np.asarray(pixelSpacing[0])
                         coordinateSystemTransform[0:3, 1] = np.asarray(Y) * np.asarray(pixelSpacing[1])
                         coordinateSystemTransform[0:, 3] = ImagePosition
-                        arrayTuple.append([np.float(dataset.SliceLocation), dataset.pixel_array, coordinateSystemTransform])
+                        arrayTuple.append([np.float(dataset.SliceLocation),
+                                           dataset.pixel_array,
+                                           coordinateSystemTransform])
                         dataset_ct = dcmFile
                     elif dataset.Modality == 'RTSTRUCT':
                         print('found RTSTRUCT')
@@ -85,7 +88,8 @@ for directory in dirList:
                 data = {}
                 sliceLocations = np.zeros((len(arrayTuple)))
                 imageSize = np.asarray([len(arrayTuple), dataset.Rows, dataset.Columns, 1])
-                pixelConversion = np.asarray([dataset.RescaleIntercept, dataset.RescaleSlope])
+                if dataset.Modality == 'CT':
+                    pixelConversion = np.asarray([dataset.RescaleIntercept, dataset.RescaleSlope])
                 pixelData = np.zeros(imageSize)
                 coordinateTransforms = np.zeros((4, 4, len(arrayTuple)))
 
@@ -97,7 +101,8 @@ for directory in dirList:
                     l = l + 1
                 data['sliceLocations'] = sliceLocations
                 data['imageSize'] = imageSize
-                data['pixelConversion'] = pixelConversion
+                if dataset.Modality == 'CT':
+                    data['pixelConversion'] = pixelConversion
                 data['imageMatrix'] = pixelData
                 data['coordinateSystemTransform'] = coordinateTransforms
                 date_obj = datetime.strptime(dataset.StudyDate + dataset.StudyTime[0:5], '%Y%m%d%H%M%S')
@@ -111,7 +116,8 @@ for directory in dirList:
                     store_arrays_hdf5(data, HDF5_DIR, filename)
                     if not (db['SCAN_FILE'] == filename + '.h5').any():
                         db.at[db.index[db['MRN'] == dataset.PatientID].tolist()[0], 'SCAN_FILE'] = filename + '.h5'
-                        db.at[db.index[db['MRN'] == dataset.PatientID].tolist()[0], 'SCAN_DATE'] = date_obj.strftime('%Y-%m-%d %H:%M:%S')
+                        db.at[db.index[db['MRN'] == dataset.PatientID].tolist()[0], 'SCAN_DATE'] = date_obj.strftime(
+                                                                                                    '%Y-%m-%d %H:%M:%S')
                     else:
                         print('Series already in database')
                 else:
@@ -161,7 +167,10 @@ for directory in dirList:
                     db.to_excel(contourDatabase, index=False)
 
     # if RTSTRUCT file, store based on defined tag
-    elif 'RTSTRUCT' in directory.upper() and 'ATLAS' in directory.upper():
+    elif 'RTSTRUCT' in directory.upper() and ('ATLAS' in directory.upper() or
+                                              'INITIAL' in directory.upper() or
+                                              'SIM' in directory.upper() or
+                                              'SETUP' in directory.upper()):
 
         dcmFiles = find('*.dcm', directory)
         print(directory)
@@ -186,7 +195,10 @@ for directory in dirList:
         print('Row updated for patient directory: ' + directory)
         db.to_excel(contourDatabase, index=False)
 
-    elif 'RTSTRUCT' in directory.upper() and ('ECLIPSE' in directory.upper() or 'APPROVED' in directory.upper() or 'YY' in directory.upper() or 'FOR' in directory.upper()):
+    elif 'RTSTRUCT' in directory.upper() and ('ECLIPSE' in directory.upper() or
+                                              'APPROVED' in directory.upper() or
+                                              'YY' in directory.upper() or
+                                              'FOR' in directory.upper()):
 
         dcmFiles = find('*.dcm', directory)
         print(directory)
