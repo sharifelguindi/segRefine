@@ -34,7 +34,9 @@ def getKey(item):
     return item[0]
 
 
-def compute_metrics(mask_gt, mask_pred, spacing_mm=(3, 0.6, 0.6), surface_tolerances=[1, 3]):
+def compute_metrics(mask_gt, mask_pred, spacing_mm=(3, 0.6, 0.6), surface_tolerances=None):
+    if surface_tolerances is None:
+        surface_tolerances = [1, 3]
     surface_DSC = []
     DSC = []
     HD_95 = []
@@ -63,6 +65,8 @@ def poly2mask(slicePts_ref, pxTransform_inv, imageSize):
         img = Image.new('L', (imageSize[1], imageSize[2]), 0)
         ImageDraw.Draw(img).polygon(cur_contour_2_d, outline=1, fill=1)
         mask = np.array(img)
+    else:
+        mask = np.asarray(Image.new('L', (imageSize[1], imageSize[2]), 0))
 
     return mask
 
@@ -163,6 +167,7 @@ def get_added_path_length(ref_poly, contracted_poly, expanded_poly, debug=False)
     return total_path_length
 
 
+# noinspection PyUnresolvedReferences
 def compute_comparison(ref, test, imageSize, sliceLocations, coordTransform):
     rndDig = 3
     total_added_path_length = 0
@@ -242,7 +247,9 @@ def compute_comparison(ref, test, imageSize, sliceLocations, coordTransform):
                     if refpolygon is not None:
                         if not refpolygon.is_valid:
                             refpolygon = refpolygon.buffer(0)
-                    mask_ref[np.where(np.round(sliceLocations, rndDig) == z), :, :, 0] = poly2mask(slicePts_ref, pxTransform_inv, imageSize)
+                    mask_ref[np.where(np.round(sliceLocations, rndDig) == z), :, :, 0] = poly2mask(slicePts_ref,
+                                                                                                   pxTransform_inv,
+                                                                                                   imageSize)
 
             testpolygon = None
             if slicePts_test:
@@ -275,7 +282,9 @@ def compute_comparison(ref, test, imageSize, sliceLocations, coordTransform):
                     if testpolygon is not None:
                         if not testpolygon.is_valid:
                             testpolygon = testpolygon.buffer(0)
-                    mask_test[np.where(np.round(sliceLocations, rndDig) == z), :, :, 0] = poly2mask(slicePts_test, pxTransform_inv, imageSize)
+                    mask_test[np.where(np.round(sliceLocations, rndDig) == z), :, :, 0] = poly2mask(slicePts_test,
+                                                                                                    pxTransform_inv,
+                                                                                                    imageSize)
 
             if refpolygon is not None and testpolygon is not None:
 

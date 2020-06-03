@@ -2,6 +2,7 @@ import numpy as np
 import pandas as pd
 import datetime
 
+
 def Name_toMRN(text):
     if '_VDCE' in str(text):
         text = str(text)
@@ -9,6 +10,7 @@ def Name_toMRN(text):
     else:
         MRN = text
     return MRN
+
 
 def simnote_to_site(text):
 
@@ -50,8 +52,11 @@ def simnote_to_site(text):
     elif ('PROSTATE' in text or 'FOLEY' in text and not 'BRACHY' in text and not 'SBRT' in text and 'OP' in text and 'NODES' in text and not 'MODHYPOFX' in text):
         site = 'PROSTATE BED WITH NODES'
 
-    elif ('H&N' in text or 'NECK' in text or 'HEAD' in text or 'PHARYNX' in text or 'LARYNX' in text or 'ORAL' in text or 'NASO' in text or 'ORO' in text or 'NOSE' in text and not 'FEMORAL' in text):
-        site = 'HEAD AND NECK'
+    elif ('H&N' in text or 'NECK' in text or 'HEAD' in text or 'PHARYNX' in text or 'LARYNX' in text or 'ORAL' in text or 'NASO' in text or 'ORO' in text or 'NOSE' in text):
+        if 'FEMORAL' in text or 'PANCREATIC' in text:
+            site = 'UNDEFINED'
+        else:
+            site = 'HEAD AND NECK'
 
     elif ('BREAST' in text or 'CHESTWALL' in text):
         site = 'BREAST'
@@ -60,23 +65,6 @@ def simnote_to_site(text):
 
     return site
 
-def simdate_to_datetime(date, time):
-
-    if not isinstance(time, datetime.datetime):
-        try:
-            time_formatted = datetime.datetime.strptime(time, ' %I:%M %p')
-        except:
-            time_formatted = time
-    else:
-        time_formatted = time
-
-    date_formatted = datetime.datetime.strptime(date, '%m/%d/%Y %a')
-    try:
-        date_time_object = datetime.datetime.combine(date_formatted.date(), time_formatted)
-    except:
-        date_time_object = datetime.datetime.combine(date_formatted.date(), time_formatted.time())
-
-    return date_time_object
 
 def fix_mrn(mrn, length):
 
@@ -86,77 +74,118 @@ def fix_mrn(mrn, length):
     return mrn
 
 
-# rawDataFeed: path to data from HIS scheduling that needs processing
-rawDatafeed = 'G:\\Projects\\AutoQC\\rawDataHIS.xlsx'
+def main():
+    print('This file consists of helper functions for parsing HIS feeds')
+    # rawDataFeed: path to data from HIS scheduling that needs processing
+    rawDatafeed = 'H:\\Treatment Planning\\Elguindi\\HN_log\\HIS.txt'
+    data = pd.read_csv(rawDatafeed, sep='\t', lineterminator='\r', header=None)
+    columns = ['SIMDATE', 'SIMTIME', 'NAME', 'MRN', 'PROVIDER', 'SIMNOTE', 'SIMSITE', 'SIMLOC', 'SITE']
+    data.columns = columns
+    data['DATETIME'] = ""
 
-# dataPath: path to processed contoured data generated from Matlab
-dataPath = 'G:\\Projects\\AutoQC\\data.xlsx'
+    print('Cleaning site names...')
+    i = 0
+    for text in data.SIMSITE:
+        site = simnote_to_site(str(text))
+        data.SITE[i] = site
+        i = i + 1
 
-# questPath: path to Feedback Questionaire
-questPath = 'H:\\Treatment Planning\\Elguindi\\prostateSegAnalysis\\metrics\\Feedback.xlsx'
+    print('Creating DateTime Objects...')
+    i = 0
+    for time in data.SIMTIME:
+        date_time_object = datetime.datetime.combine(datetime.datetime.strptime(data.SIMDATE[i].strip('\n').strip(), '%m/%d/%Y'),
+                                                     datetime.datetime.strptime(time.strip(), '%I:%M %p').time())
+        data.DATETIME[i] = date_time_object
+        i = i + 1
 
-data = pd.read_excel(rawDatafeed)
-print('Cleaning site names...')
-i = 0
-for text in data.SIMNOTE:
-    site = simnote_to_site(str(text))
-    data.SITE[i] = site
-    i = i + 1
+    print('Cleaning MRNs...')
+    data.MRN = data.MRN.astype('str')
+    i = 0
+    for mrn in data.MRN:
+        data.MRN[i] = fix_mrn(mrn, 8)
+        i = i + 1
 
-print('Creating DateTime Objects...')
-i = 0
-for time in data.SIMTIME:
+    data.loc[data['SITE'].str.contains('PROSTATE')].to_excel('H:\\Treatment Planning\\Elguindi\\HN_log\\PROSTATE.xlsx')
+    data.loc[data['SITE'].str.contains('HEAD AND NECK')].to_excel('H:\\Treatment Planning\\Elguindi\\HN_log\\HN.xlsx')
 
-    if i == 0:
-        date_time_prv = simdate_to_datetime(data.SIMDATE[i], time)
-        date_time_obj = date_time_prv
-    else:
-        date_time_curr = simdate_to_datetime(data.SIMDATE[i], time)
 
-        if date_time_curr.strftime('%Y') == '0001' and i > 0:
-            date_time_obj = date_time_prv
-        else:
-            date_time_prv = date_time_curr
-            date_time_obj = date_time_curr
+    # print('Remove UNDEFINED sites....')
+    # data_cleaned = data.loc[~(data == 'UNDEFINED').any(axis=1)]
+    # data_cleaned.reset_index(drop=True, inplace=True)
 
-    data.DATETIME[i] = date_time_obj
-    i = i + 1
+    #
+    # # dataPath: path to processed contoured data generated from Matlab
+    # dataPath = 'G:\\Projects\\AutoQC\\data.xlsx'
+    #
+    # # questPath: path to Feedback Questionaire
+    # questPath = 'H:\\Treatment Planning\\Elguindi\\prostateSegAnalysis\\metrics\\Feedback.xlsx'
+    #
+    # data = pd.read_excel(rawDatafeed)
+    # print('Cleaning site names...')
+    # i = 0
+    # for text in data.SIMNOTE:
+    #     site = simnote_to_site(str(text))
+    #     data.SITE[i] = site
+    #     i = i + 1
+    #
+    # print('Creating DateTime Objects...')
+    # i = 0
+    # for time in data.SIMTIME:
+    #
+    #     if i == 0:
+    #         date_time_prv = simdate_to_datetime(data.SIMDATE[i], time)
+    #         date_time_obj = date_time_prv
+    #     else:
+    #         date_time_curr = simdate_to_datetime(data.SIMDATE[i], time)
+    #
+    #         if date_time_curr.strftime('%Y') == '0001' and i > 0:
+    #             date_time_obj = date_time_prv
+    #         else:
+    #             date_time_prv = date_time_curr
+    #             date_time_obj = date_time_curr
+    #
+    #     data.DATETIME[i] = date_time_obj
+    #     i = i + 1
+    #
+    # print('Cleaning MRNs...')
+    # data.MRN = data.MRN.astype('str')
+    # i = 0
+    # for mrn in data.MRN:
+    #     data.MRN[i] = fix_mrn(mrn, 8)
+    #     i = i + 1
+    #
+    # print('Remove UNDEFINED sites....')
+    # data_cleaned = data.loc[~(data == 'UNDEFINED').any(axis=1)]
+    # data_cleaned.reset_index(drop=True, inplace=True)
+    #
+    # new_data = pd.read_excel(dataPath)
+    # print('Cleaning newData MRNs...')
+    # new_data.MRN = new_data.MRN.astype('str')
+    # i = 0
+    # for mrn in new_data.MRN:
+    #     new_data.MRN[i] = fix_mrn(mrn, 8)
+    #     i = i + 1
+    #
+    # questData = pd.read_excel(questPath)
+    # print('Cleaning feedback MRNs...')
+    # questData.MRN = questData.MRN.astype('str')
+    # i = 0
+    # for mrn in questData.MRN:
+    #     questData.MRN[i] = fix_mrn(mrn, 8)
+    #     i = i + 1
+    #
+    # merged_df = pd.merge(data_cleaned, new_data, how='left', on=['MRN'])
+    # merged_df = pd.merge(merged_df, questData, how='left', on=['MRN'])
+    #
+    # databasePath =  'G:\\Projects\\AutoQC\\prostateDB.xlsx'
+    #
+    # columnsToDrop = ['SIMDATE', 'SIMTIME', 'Task Campus', 'Task Due Date', 'Task Completion Date', 'Task Status', 'Qn Appr?', 'Qn Appr Date']
+    #
+    # merged_df.drop(columns=columnsToDrop, inplace=True)
+    # merged_df.rename(columns={'Qn 3 Resp': 'qualityScore', 'Qn 2 Resp': 'timeSpent', 'Qn 3 Resp.1': 'COMMENTS'}, inplace=True)
+    #
+    # merged_df.to_excel(databasePath)
 
-print('Cleaning MRNs...')
-data.MRN = data.MRN.astype('str')
-i = 0
-for mrn in data.MRN:
-    data.MRN[i] = fix_mrn(mrn, 8)
-    i = i + 1
+if __name__ == '__main__':
+    main()
 
-print('Remove UNDEFINED sites....')
-data_cleaned = data.loc[~(data == 'UNDEFINED').any(axis=1)]
-data_cleaned.reset_index(drop=True, inplace=True)
-
-new_data = pd.read_excel(dataPath)
-print('Cleaning newData MRNs...')
-new_data.MRN = new_data.MRN.astype('str')
-i = 0
-for mrn in new_data.MRN:
-    new_data.MRN[i] = fix_mrn(mrn, 8)
-    i = i + 1
-
-questData = pd.read_excel(questPath)
-print('Cleaning feedback MRNs...')
-questData.MRN = questData.MRN.astype('str')
-i = 0
-for mrn in questData.MRN:
-    questData.MRN[i] = fix_mrn(mrn, 8)
-    i = i + 1
-
-merged_df = pd.merge(data_cleaned, new_data, how='left', on=['MRN'])
-merged_df = pd.merge(merged_df, questData, how='left', on=['MRN'])
-
-databasePath =  'G:\\Projects\\AutoQC\\prostateDB.xlsx'
-
-columnsToDrop = ['SIMDATE', 'SIMTIME', 'Task Campus', 'Task Due Date', 'Task Completion Date', 'Task Status', 'Qn Appr?', 'Qn Appr Date']
-
-merged_df.drop(columns=columnsToDrop, inplace=True)
-merged_df.rename(columns={'Qn 3 Resp': 'qualityScore', 'Qn 2 Resp': 'timeSpent', 'Qn 3 Resp.1': 'COMMENTS'}, inplace=True)
-
-merged_df.to_excel(databasePath)
