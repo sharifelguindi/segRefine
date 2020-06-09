@@ -37,6 +37,7 @@ metricSelectionOptions = ['APL', 'TP volume', 'FN volume', 'FP volume', 'SEN', '
                           'Reference Centroid', 'Test Centroid', 'SDSC_1mm', 'SDSC_3mm',
                           'RobustHD_95', 'ref_vol', 'test_vol']
 
+metricSelectionUnits = ['cm', 'cc', 'cc', 'cc', '', '', '', 'mm', 'mm', 'mm', 'mm']
 db.index = db['SCAN_DATE']
 
 
@@ -118,9 +119,9 @@ def update_figure(organName, comparisonMetric):
     )
 
     if 'DSC' in columnName:
-        rangeVal = [0, 1.01]
+        rangeVal = [-0.1, 1.01]
     else:
-        rangeVal = [0, y_val.max()*1.03]
+        rangeVal = [-0.1, y_val.max()*1.03]
 
     fig.update_yaxes(
         range=rangeVal
@@ -169,14 +170,6 @@ def load_data(clickData, organName, comparisonMetric):
                        centroid_contour[1] - int(height / 2):centroid_contour[1] + int(height / 2),
                        int(bbox[4]) - 5:int(bbox[5]) + 5]
 
-        # mask_arr_add = addedVol[centroid_contour[0] - int(height / 2):centroid_contour[0] + int(height / 2),
-        #                centroid_contour[1] - int(height / 2):centroid_contour[1] + int(height / 2),
-        #                int(bbox[4]) - 5:int(bbox[5]) + 5]
-        #
-        # mask_arr_sub = subVol[centroid_contour[0] - int(height / 2):centroid_contour[0] + int(height / 2),
-        #                centroid_contour[1] - int(height / 2):centroid_contour[1] + int(height / 2),
-        #                int(bbox[4]) - 5:int(bbox[5]) + 5]
-        #
         mask_arr_auto = mask_test[centroid_contour[0] - int(height / 2):centroid_contour[0] + int(height / 2),
                         centroid_contour[1] - int(height / 2):centroid_contour[1] + int(height / 2),
                         int(bbox[4]) - 5:int(bbox[5]) + 5]
@@ -185,7 +178,6 @@ def load_data(clickData, organName, comparisonMetric):
         h, w, l, c = np.shape(coloredMask)
         coloredMask[:, :, :, 0] = (mask_arr_add.squeeze() * 255).astype('uint8')
         coloredMask[:, :, :, 1] = (mask_arr_auto.squeeze() * 255).astype('uint8')
-        # coloredMask[:, :, :, 2] = (mask_arr_sub * -255).astype('uint8')
         displayImg = np.zeros(np.shape(scan_arr.astype('uint8')))
 
         frames = []

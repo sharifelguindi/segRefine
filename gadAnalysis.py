@@ -12,7 +12,7 @@ from timeit import default_timer as timer
 import SimpleITK as sitk
 import cv2
 import pickle
-
+import os
 
 def getMaskFromDistmap(roiSize, redSize, spacing_mm, G):
     G_reshaped = np.reshape(G, (redSize))
@@ -282,6 +282,35 @@ def generate_random_sample(g_sample, stdDev, maxIncorrect, incorrect_range, corr
     return g_new, correct, incorrect
 
 
+def generate_random_sample_volume(g_sample, stdDev, maxIncorrect, incorrect_range, correct_range):
+
+    g_new = np.zeros(np.shape(g_sample))
+    L_max = int(len(g_sample))
+    L = int(random.uniform(0, maxIncorrect))
+    correct = list(range(0, L_max))
+    incorrect = get_int_list(0, L_max - 1, L)
+    for sample in incorrect:
+        correct.remove(sample)
+
+    for n in incorrect:
+        coord = g_sample[n]
+        sd = stdDev[n]
+        sign = random.uniform(-1, 1)
+        sign = sign / np.absolute(sign)
+        coord_new = coord + (sign * random.uniform(incorrect_range[0], incorrect_range[1]) * sd)
+        g_new[n] = coord_new
+
+    for n in correct:
+        coord = g_sample[n]
+        sd = stdDev[n]
+        sign = random.uniform(-1, 1)
+        sign = sign / np.absolute(sign)
+        coord_new = coord + (sign * random.uniform(correct_range[0], correct_range[1]) * sd)
+        g_new[n] = coord_new
+
+    return g_new, correct, incorrect
+
+
 def cost_function(W, G_ex, G_bar, R, S, T, E_vec, B_weights):
     G_com = G_bar + np.dot(B_weights, E_vec)
     G_com_RST = apply_affineTransform(R, S, T, G_com)
@@ -388,6 +417,23 @@ def cost_minimization_function(x, G_ex, G_bar, E_vec, W, E_var):
 
     G_com = G_bar + np.dot(B_weights, E_vec)
     G_com_RST = apply_affineTransform(R, S, T, G_com)
+    delta_G = G_ex - G_com_RST
+    func_val = np.dot(W, delta_G.T)
+    cost_value = np.sum((np.sqrt(func_val ** 2)) / len(G_ex))
+
+    return cost_value
+
+
+def cost_minimization_function_volume(x, G_ex, G_bar, E_vec, W, E_var):
+
+    B_weights = np.copy(np.reshape(x[1:], (len(E_var),)))
+
+    for i in range(0, len(E_var)):
+        if np.absolute(B_weights[i]) > 2 * np.sqrt(E_var[i]):
+            B_weights[i] = (B_weights[i] / np.absolute(B_weights[i])) * 2 * np.sqrt(E_var[i])
+
+    G_com = G_bar + np.dot(B_weights, E_vec)
+    G_com_RST = x[0]*G_com
     delta_G = G_ex - G_com_RST
     func_val = np.dot(W, delta_G.T)
     cost_value = np.sum((np.sqrt(func_val ** 2)) / len(G_ex))
@@ -521,6 +567,17 @@ def generate_random_x(E_var):
     return np.asarray(x)
 
 
+def initialize_random_weights_volume(E_var):
+
+    x = []
+    x.append(random.uniform(0.1, 1.1))
+
+    for b in range(0, len(E_var)):
+        x.append(random.uniform(-1 * np.sqrt(E_var[b]) * 2, 2 * np.sqrt(E_var[b])))
+
+    return np.asarray(x)
+
+
 def generate_random_shapeX(E_var):
     x = []
     for angle in range(0, 3):
@@ -541,10 +598,10 @@ def generate_random_shapeX(E_var):
 def get_T1_T2(GAD_score, GAD_score_tot, incorrectList, n_f, plot_flag=False):
     # Optimize T2
     j = 0
-    T2_init = 0.01
-    T2_stop = 1.5
-    stepSize = 0.01
-    numSteps = int((T2_stop - T2_init) / stepSize)
+    T2_init = 0
+    T2_stop = np.max(GAD_score)*1.1
+    stepSize = T2_stop/5000
+    numSteps = int((T2_stop - T2_init) / stepSize) + 1
     x = np.zeros(numSteps)
     y = np.zeros(numSteps)
     f_score = np.zeros(numSteps)
@@ -556,9 +613,9 @@ def get_T1_T2(GAD_score, GAD_score_tot, incorrectList, n_f, plot_flag=False):
         PPV = np.zeros(len(incorrectList))  # Precision/positive predictive value
         FPR = np.zeros(len(incorrectList))  # Fallout
         for prediction in GAD_score:
-            score = np.asarray(prediction)
-            score[score > T2] = 1
-            score[score <= T2] = 0
+            values = np.asarray(prediction)
+            score = np.zeros(np.shape(values))
+            score[values > T2] = 1
 
             ans = np.zeros(n_f)
             ans[incorrectList[k]] = 1
@@ -592,10 +649,10 @@ def get_T1_T2(GAD_score, GAD_score_tot, incorrectList, n_f, plot_flag=False):
 
     # Optimize T1
     j = 0
-    T1_init = 0.01
-    T1_stop = 1.5
-    stepSize = 0.01
-    numSteps = int((T1_stop - T1_init) / stepSize)
+    T1_init = 0
+    T1_stop = np.max(GAD_score_tot)*1.1
+    stepSize = T1_stop/5000
+    numSteps = int((T1_stop - T1_init) / stepSize) + 1
     T2 = np.min(T2_value[np.where(f_score == np.max(f_score))])
     x = np.zeros(numSteps)
     y = np.zeros(numSteps)
@@ -610,9 +667,9 @@ def get_T1_T2(GAD_score, GAD_score_tot, incorrectList, n_f, plot_flag=False):
             if total_prediction < T1:
                 score = np.zeros(n_f)
             else:
-                score = np.asarray(GAD_score[k])
-                score[score > T2] = 1
-                score[score <= T2] = 0
+                values = np.asarray(GAD_score[k])
+                score = np.zeros(np.shape(values))
+                score[values > T2] = 1
 
             ans = np.zeros(n_f)
             ans[incorrectList[k]] = 1
@@ -660,9 +717,9 @@ def score_case(T1, T2, GAD_score, GAD_score_tot, incorrectList, n_f):
         if total_prediction < T1:
             score = np.zeros(n_f)
         else:
-            score = np.asarray(GAD_score[k])
-            score[score > T2] = 1
-            score[score <= T2] = 0
+            values = np.asarray(GAD_score[k])
+            score = np.zeros(np.shape(values))
+            score[values > T2] = 1
 
         ans = np.zeros(n_f)
         ans[incorrectList[k]] = 1
@@ -691,18 +748,196 @@ def score_case(T1, T2, GAD_score, GAD_score_tot, incorrectList, n_f):
     return TPR_mean, FPR_mean, f_score
 
 
-def main():
+def train_volume_model(structures):
+
     masterStructureList = "G:\\Projects\\mimTemplates\\StructureListMaster.xlsx"
     structureList = pd.read_excel(masterStructureList)
-    contourDatabase = "H:\\Treatment Planning\\Elguindi\\contourDatabase\\contourDB.xlsx"
+    contourDatabase = "H:\\Treatment Planning\\Elguindi\\contourDatabase\\trainingDB.xlsx"
     db = pd.read_excel(contourDatabase, index=False)
-    HDF5_DIR = 'H:\\Treatment Planning\\Elguindi\\GAD'
-    filename = 'prostate_GAD_centroid'
     sl = [x.upper() for x in structureList['StructureName'].to_list()]
     sl.remove('EXTERNAL')
-    # ['xFiducial_1', 'xFiducial_2', 'xFiducial_3']
-    structures = ['Bladder_O', 'Rectum_O', 'CTV_PROST', 'Penile_Bulb',
-                  'Rectal_Spacer', 'Femur_L', 'Femur_R']
+
+    num_iterations = 20
+
+    items = []
+    for s in structures:
+        items.append(s.upper() + '_' + 'ref_vol')
+
+    db_volume = db.filter(items=items).replace(0, np.nan).dropna(axis=0)*0.001
+    G_cen = np.asarray(db_volume)
+
+    pctSplit = 0.8
+    G_cen = G_cen[~np.isnan(G_cen).any(axis=1)]
+    m_tot, n_tot = np.shape(G_cen)
+
+    G_cen_test = G_cen[int(np.floor(m_tot * pctSplit)):, :]
+    G_cen = G_cen[0:int(np.floor(m_tot * pctSplit)), :]
+    df = pd.DataFrame(G_cen)
+    G_cen_aligned = np.copy(G_cen)
+    stdDev = np.asarray(df.describe().iloc[2, :])
+    m, n = np.shape(G_cen_aligned)
+    G_bar = np.zeros((1, np.shape(G_cen)[1]))
+    G_bar[0, :] = np.mean(G_cen_aligned, 0)
+    X = G_cen_aligned - G_bar
+    U, s, Vh = linalg.svd(X, full_matrices=False)
+    s = (s ** 2) / (m - 1)
+    V = Vh.T
+
+    E_vec = V[:, np.where(np.cumsum(s) / np.sum(s) <= 0.99)].squeeze()
+    E_vec = E_vec.T
+    t = len(np.where(np.cumsum(s) / np.sum(s) <= 0.99)[0])
+    E_val = np.zeros((t, 1))
+    E_val[:, 0] = s[np.where(np.cumsum(s) / np.sum(s) <= 0.99)].squeeze()
+    E_var = np.copy(E_val).squeeze()
+
+    GAD_MODEL = {'trainingDataRaw': G_cen,
+                 'trainingDataAligned': G_cen_aligned,
+                 'eigenvectors': E_vec,
+                 'eigenvalues': E_var,
+                 'G_bar': G_bar,
+                 'standard_deviation': stdDev}
+    n_f = n
+
+    # Create training set
+    mult = 1
+    G_train = np.zeros((m * mult, n))
+    g = 0
+    correctList = []
+    incorrectList = []
+    for i in range(0, m):
+        g_sample = G_cen[i, :]
+        for k in range(0, mult):
+            g_sample_mod, correct, incorrect = generate_random_sample_volume(g_sample, stdDev, 4, [3, 6], [0, 0.5])
+            G_train[g, :] = g_sample_mod - G_bar
+            correctList.append(correct)
+            incorrectList.append(incorrect)
+            g = g + 1
+
+    # Initialization Parameters
+    GAD_score = []
+    GAD_score_tot = []
+    for sample in range(0, m*mult):
+        method = 'Powell'  # Powell, BFGS, Nelder-Mead, CG
+        G_ex = np.zeros((1, n))
+        G_ex[0, :] = G_train[sample, :]
+        W = np.zeros((n, n))
+        np.fill_diagonal(W, 1)
+
+        # print('Starting analysis on sample: ' + str(sample))
+        start = timer()
+        x_o = initialize_random_weights_volume(E_var)
+        results = basinhopping(cost_minimization_function_volume, x_o, niter=num_iterations,
+                               minimizer_kwargs={"args": (G_ex, G_bar, E_vec, W, E_var), "method": method})
+
+        epsilon_a = np.copy(results.fun)
+        GAD_score_tot.append(epsilon_a)
+        epsilon_delta = list(range(0, n_f))
+        for nn in epsilon_delta:
+            W = np.zeros((n, n))
+            np.fill_diagonal(W, 1)
+            zero_row = np.zeros(np.shape(W[0, :]))
+            W[nn, :] = zero_row
+            results_nn = basinhopping(cost_minimization_function_volume, x_o, niter=num_iterations,
+                                      minimizer_kwargs={"args": (G_ex, G_bar, E_vec, W, E_var), "method": method})
+
+            cost_value_nn = np.copy(results_nn.fun)
+            epsilon_delta[nn] = np.absolute(cost_value_nn - epsilon_a)
+
+        end = timer()
+        print('Compared Train Sample:' + str(sample))
+        print('Time taken: ' + str(end - start) + ' (s)')
+        GAD_score.append(epsilon_delta)
+
+    T1, T2, TPR_mean, FPR_mean, F_score = get_T1_T2(GAD_score, GAD_score_tot, incorrectList, n_f,
+                                                    plot_flag=True)
+
+    GAD_MODEL['trainingScoreT2'] = GAD_score
+    GAD_MODEL['trainingScoreT1'] = GAD_score_tot
+    GAD_MODEL['trainingIncorrectList'] = incorrectList
+    GAD_MODEL['numVariables'] = n_f
+    GAD_MODEL['T1'] = T1
+    GAD_MODEL['T2'] = T2
+
+    # Load training data to run further testing
+    # HDF5_DIR = 'H:\\Treatment Planning\\Elguindi\\GAD'
+    # filename = 'PROSTATE_CENTROID'
+    # GAD_MODEL = pickle.load(open(os.path.join(HDF5_DIR, filename + '.p'), 'rb'))
+    # T1 = GAD_MODEL['T1']
+    # T2 = GAD_MODEL['T2']
+
+    # Create testing set
+    mult = 5
+    m, n = np.shape(G_cen_test)
+    G_test = np.zeros((m * mult, n))
+    g = 0
+    num_iterations = 5
+    correctList = []
+    incorrectList = []
+    for i in range(0, m):
+        g_sample = G_cen_test[i, :]
+        for k in range(0, mult):
+            g_sample_mod, correct, incorrect = generate_random_sample_volume(g_sample, stdDev, 4, [3, 6], [0, 0.5])
+            G_test[g, :] = g_sample_mod - G_bar
+            correctList.append(correct)
+            incorrectList.append(incorrect)
+            g = g + 1
+
+    # Initialization Parameters
+    GAD_score = []
+    GAD_score_tot = []
+    for sample in range(0, m*mult):
+        method = 'Powell'  # Powell, BFGS, Nelder-Mead, CG
+        G_ex = np.zeros((1, n))
+        G_ex[0, :] = G_test[sample, :]
+        W = np.zeros((n, n))
+        np.fill_diagonal(W, 1)
+
+        # print('Starting analysis on sample: ' + str(sample))
+        start = timer()
+        x_o = initialize_random_weights_volume(E_var)
+        results = basinhopping(cost_minimization_function_volume, x_o, niter=num_iterations,
+                               minimizer_kwargs={"args": (G_ex, G_bar, E_vec, W, E_var), "method": method})
+        epsilon_a = np.copy(results.fun)
+        GAD_score_tot.append(epsilon_a)
+        epsilon_delta = list(range(0, n_f))
+        for nn in epsilon_delta:
+            W = np.zeros((n, n))
+            np.fill_diagonal(W, 1)
+            zero_row = np.zeros(np.shape(W[0, :]))
+            W[nn, :] = zero_row
+            results_nn = basinhopping(cost_minimization_function_volume, x_o, niter=num_iterations,
+                                      minimizer_kwargs={"args": (G_ex, G_bar, E_vec, W, E_var), "method": method})
+            cost_value_nn = np.copy(results_nn.fun)
+            epsilon_delta[nn] = np.absolute(cost_value_nn - epsilon_a)
+        end = timer()
+        print('Compared Train Sample:' + str(sample))
+        print('Time taken: ' + str(end - start) + ' (s)')
+        GAD_score.append(epsilon_delta)
+
+    TPR_mean, FPR_mean, f_score = score_case(T1, T2, GAD_score, GAD_score_tot, incorrectList, n_f)
+
+    GAD_MODEL['testScoreT2'] = GAD_score
+    GAD_MODEL['testScoreT1'] = GAD_score_tot
+    GAD_MODEL['testIncorrectList'] = incorrectList
+    GAD_MODEL['testTPR'] = TPR_mean
+    GAD_MODEL['testFPR'] = FPR_mean
+    GAD_MODEL['testF_score'] = f_score
+
+    return GAD_MODEL
+
+
+def train_centroid_model(structures):
+
+    masterStructureList = "G:\\Projects\\mimTemplates\\StructureListMaster.xlsx"
+    structureList = pd.read_excel(masterStructureList)
+    contourDatabase = "H:\\Treatment Planning\\Elguindi\\contourDatabase\\trainingDB.xlsx"
+    db = pd.read_excel(contourDatabase, index=False)
+    sl = [x.upper() for x in structureList['StructureName'].to_list()]
+    sl.remove('EXTERNAL')
+
+    # mult = 5
+    num_iterations = 5
+
     items = []
     for s in structures:
         items.append(s.upper() + '_' + 'Reference Centroid')
@@ -740,23 +975,23 @@ def main():
     s = (s ** 2) / (m - 1)
     V = Vh.T
 
-    E_vec = V[:, np.where(np.cumsum(s) / np.sum(s) <= 0.99)].squeeze()
+    E_vec = V[:, np.where(np.cumsum(s) / np.sum(s) <= 0.95)].squeeze()
     E_vec = E_vec.T
-    t = len(np.where(np.cumsum(s) / np.sum(s) <= 0.99)[0])
+    t = len(np.where(np.cumsum(s) / np.sum(s) <= 0.95)[0])
     E_val = np.zeros((t, 1))
-    E_val[:, 0] = s[np.where(np.cumsum(s) / np.sum(s) <= 0.99)].squeeze()
+    E_val[:, 0] = s[np.where(np.cumsum(s) / np.sum(s) <= 0.95)].squeeze()
     E_var = np.copy(E_val).squeeze()
 
-    data = {'trainingDataRaw': G_cen, 'trainingDataAligned': G_cen_aligned, 'eigenvectors': E_vec, 'eigenvalues': E_var,
-            'G_bar': G_bar, 'standard_deviation': stdDev}
-    store_arrays_hdf5(data, HDF5_DIR, filename)
-
-    # m = 100
-    mult = 1
+    GAD_MODEL = {'trainingDataRaw': G_cen,
+                 'trainingDataAligned': G_cen_aligned,
+                 'eigenvectors': E_vec,
+                 'eigenvalues': E_var,
+                 'G_bar': G_bar,
+                 'standard_deviation': stdDev}
     n_f = int(n / 3)
-    num_iterations = 5
 
     # Create training set
+    mult = 1
     G_train = np.zeros((m * mult, n))
     g = 0
     correctList = []
@@ -815,9 +1050,23 @@ def main():
     T1, T2, TPR_mean, FPR_mean, F_score = get_T1_T2(GAD_score, GAD_score_tot, incorrectList, n_f,
                                                     plot_flag=False)
 
+    GAD_MODEL['trainingScoreT2'] = GAD_score
+    GAD_MODEL['trainingScoreT1'] = GAD_score_tot
+    GAD_MODEL['trainingIncorrectList'] = incorrectList
+    GAD_MODEL['numVariables'] = n_f
+    GAD_MODEL['T1'] = T1
+    GAD_MODEL['T2'] = T2
+
+    # Load training data to run further testing
+    # HDF5_DIR = 'H:\\Treatment Planning\\Elguindi\\GAD'
+    # filename = 'PROSTATE_CENTROID'
+    # GAD_MODEL = pickle.load(open(os.path.join(HDF5_DIR, filename + '.p'), 'rb'))
+    # T1 = GAD_MODEL['T1']
+    # T2 = GAD_MODEL['T2']
+
     # Create testing set
-    m, n = np.shape(G_cen_test)
     mult = 5
+    m, n = np.shape(G_cen_test)
     G_test = np.zeros((m * mult, n))
     g = 0
     num_iterations = 5
@@ -871,8 +1120,219 @@ def main():
         print('Time taken: ' + str(end - start) + ' (s)')
         GAD_score.append(epsilon_delta)
 
-    print(T1)
-    print(T2)
+    TPR_mean, FPR_mean, f_score = score_case(T1, T2, GAD_score, GAD_score_tot, incorrectList, n_f)
+
+    GAD_MODEL['testScoreT2'] = GAD_score
+    GAD_MODEL['testScoreT1'] = GAD_score_tot
+    GAD_MODEL['testIncorrectList'] = incorrectList
+    GAD_MODEL['testTPR'] = TPR_mean
+    GAD_MODEL['testFPR'] = FPR_mean
+    GAD_MODEL['testF_score'] = f_score
+
+    return GAD_MODEL
+
+
+def main():
+
+    # PROSTATE
+    # structures = ['Bladder_O', 'Rectum_O', 'CTV_PROST', 'Penile_Bulb',
+    #               'Rectal_Spacer', 'Femur_L', 'Femur_R']
+
+    # HN
+    structures = ['BRAINSTEM', 'PAROTID_L', 'PAROTID_R', 'SUBMAND_L', 'SUBMAND_R', 'MANDIBLE',
+                  'LARYNX', 'ORAL_CAV', 'CORD']
+
+    GAD_MODEL = train_volume_model(structures)
+
+    HDF5_DIR = 'H:\\Treatment Planning\\Elguindi\\GAD'
+    filename = 'HN_VOLUME'
+    pickle.dump(GAD_MODEL, open(os.path.join(HDF5_DIR, filename + '.p'), 'wb'))
+    print(GAD_MODEL['testTPR'])
+    print(GAD_MODEL['testFPR'])
+    print('done')
+    # store_arrays_hdf5(GAD_MODEL, HDF5_DIR, filename)
+
+    # masterStructureList = "G:\\Projects\\mimTemplates\\StructureListMaster.xlsx"
+    # structureList = pd.read_excel(masterStructureList)
+    # contourDatabase = "H:\\Treatment Planning\\Elguindi\\contourDatabase\\contourDB.xlsx"
+    # db = pd.read_excel(contourDatabase, index=False)
+    # HDF5_DIR = 'H:\\Treatment Planning\\Elguindi\\GAD'
+    # filename = 'prostate_GAD_centroid'
+    # sl = [x.upper() for x in structureList['StructureName'].to_list()]
+    # sl.remove('EXTERNAL')
+    # # ['xFiducial_1', 'xFiducial_2', 'xFiducial_3']
+    # structures = ['Bladder_O', 'Rectum_O', 'CTV_PROST', 'Penile_Bulb',
+    #               'Rectal_Spacer', 'Femur_L', 'Femur_R']
+    # items = []
+    # for s in structures:
+    #     items.append(s.upper() + '_' + 'Reference Centroid')
+    #
+    # db_centroid = db.filter(items=items).dropna(axis=0)
+    # G_cen = np.zeros((np.shape(db_centroid)[0], np.shape(db_centroid)[1] * 3))
+    # n = 0
+    # for i in db_centroid.index:
+    #     gmn = db_centroid.loc[i, :]
+    #     m = 0
+    #     for item in items:
+    #         coord = gmn[item].split('_')
+    #         for c in coord:
+    #             try:
+    #                 G_cen[n, m] = float(c)
+    #                 m = m + 1
+    #             except:
+    #                 m = m
+    #     n = n + 1
+    #
+    # pctSplit = 0.8
+    # G_cen = G_cen[~np.isnan(G_cen).any(axis=1)]
+    # m_tot, n_tot = np.shape(G_cen)
+    #
+    # G_cen_test = G_cen[int(np.floor(m_tot * pctSplit)):, :]
+    # G_cen = G_cen[0:int(np.floor(m_tot * pctSplit)), :]
+    # G_m_all, G_cen_aligned = generalized_procrustes_analysis(G_cen)
+    # df = pd.DataFrame(G_cen)
+    # stdDev = np.asarray(df.describe().iloc[2, :])
+    # m, n = np.shape(G_cen_aligned)
+    # G_bar = np.zeros((1, np.shape(G_cen)[1]))
+    # G_bar[0, :] = np.mean(G_cen_aligned, 0)
+    # X = G_cen_aligned - G_bar
+    # U, s, Vh = linalg.svd(X, full_matrices=False)
+    # s = (s ** 2) / (m - 1)
+    # V = Vh.T
+    #
+    # E_vec = V[:, np.where(np.cumsum(s) / np.sum(s) <= 0.99)].squeeze()
+    # E_vec = E_vec.T
+    # t = len(np.where(np.cumsum(s) / np.sum(s) <= 0.99)[0])
+    # E_val = np.zeros((t, 1))
+    # E_val[:, 0] = s[np.where(np.cumsum(s) / np.sum(s) <= 0.99)].squeeze()
+    # E_var = np.copy(E_val).squeeze()
+    #
+    # data = {'trainingDataRaw': G_cen, 'trainingDataAligned': G_cen_aligned, 'eigenvectors': E_vec, 'eigenvalues': E_var,
+    #         'G_bar': G_bar, 'standard_deviation': stdDev}
+    # store_arrays_hdf5(data, HDF5_DIR, filename)
+    #
+    # # m = 100
+    # mult = 1
+    # n_f = int(n / 3)
+    # num_iterations = 5
+    #
+    # # Create training set
+    # G_train = np.zeros((m * mult, n))
+    # g = 0
+    # correctList = []
+    # incorrectList = []
+    # for i in range(0, m):
+    #     g_sample = G_cen[i, :]
+    #     for k in range(0, mult):
+    #         g_sample_mod, correct, incorrect = generate_random_sample(g_sample, stdDev, 4, [3, 6], [0, 0.5])
+    #         mean_shape = np.reshape(g_sample_mod, (n_f, 3))
+    #         mean_shape -= np.mean(mean_shape, 0)
+    #         norm1 = np.linalg.norm(mean_shape)
+    #         mean_shape /= norm1
+    #         G_train[g, :] = mean_shape.flatten()
+    #         correctList.append(correct)
+    #         incorrectList.append(incorrect)
+    #         g = g + 1
+    #
+    # # Initialization Parameters
+    # GAD_score = []
+    # GAD_score_tot = []
+    # for sample in range(0, m*mult):
+    #     method = 'Powell'  # Powell, BFGS, Nelder-Mead, CG
+    #     G_ex = np.zeros((1, n))
+    #     G_ex[0, :] = G_train[sample, :]
+    #     W = np.zeros((n, n))
+    #     np.fill_diagonal(W, 1)
+    #
+    #     print('Starting analysis on sample: ' + str(sample))
+    #     start = timer()
+    #     x_o = generate_random_x(E_var)
+    #     results = basinhopping(cost_minimization_function, x_o, niter=num_iterations,
+    #                            minimizer_kwargs={"args": (G_ex, G_bar, E_vec, W, E_var), "method": method})
+    #
+    #     epsilon_a = np.copy(results.fun)
+    #     GAD_score_tot.append(epsilon_a)
+    #     epsilon_delta = list(range(0, n_f))
+    #     for nn in epsilon_delta:
+    #         print(nn)
+    #         W = np.zeros((n, n))
+    #         np.fill_diagonal(W, 1)
+    #         zero_row = np.zeros(np.shape(W[0, :]))
+    #         W[3 * nn, :] = zero_row
+    #         W[3 * nn + 1, :] = zero_row
+    #         W[3 * nn + 2, :] = zero_row
+    #         results_nn = basinhopping(cost_minimization_function, x_o, niter=num_iterations,
+    #                                   minimizer_kwargs={"args": (G_ex, G_bar, E_vec, W, E_var), "method": method})
+    #
+    #         cost_value_nn = np.copy(results_nn.fun)
+    #         epsilon_delta[nn] = np.absolute(cost_value_nn - epsilon_a)
+    #
+    #     end = timer()
+    #     print('Compared Train Sample:' + str(sample))
+    #     print('Time taken: ' + str(end - start) + ' (s)')
+    #     GAD_score.append(epsilon_delta)
+    #
+    # T1, T2, TPR_mean, FPR_mean, F_score = get_T1_T2(GAD_score, GAD_score_tot, incorrectList, n_f,
+    #                                                 plot_flag=False)
+    #
+    # # Create testing set
+    # m, n = np.shape(G_cen_test)
+    # mult = 5
+    # G_test = np.zeros((m * mult, n))
+    # g = 0
+    # num_iterations = 5
+    # correctList = []
+    # incorrectList = []
+    # for i in range(0, m):
+    #     g_sample = G_cen_test[i, :]
+    #     for k in range(0, mult):
+    #         g_sample_mod, correct, incorrect = generate_random_sample(g_sample, stdDev, 4, [3, 6], [0, 0.5])
+    #         mean_shape = np.reshape(g_sample_mod, (n_f, 3))
+    #         mean_shape -= np.mean(mean_shape, 0)
+    #         norm1 = np.linalg.norm(mean_shape)
+    #         mean_shape /= norm1
+    #         G_test[g, :] = mean_shape.flatten()
+    #         correctList.append(correct)
+    #         incorrectList.append(incorrect)
+    #         g = g + 1
+    #
+    # # Initialization Parameters
+    # GAD_score = []
+    # GAD_score_tot = []
+    # for sample in range(0, m*mult):
+    #     method = 'Powell'  # Powell, BFGS, Nelder-Mead, CG
+    #     G_ex = np.zeros((1, n))
+    #     G_ex[0, :] = G_test[sample, :]
+    #     W = np.zeros((n, n))
+    #     np.fill_diagonal(W, 1)
+    #
+    #     print('Starting analysis on sample: ' + str(sample))
+    #     start = timer()
+    #     x_o = generate_random_x(E_var)
+    #     results = basinhopping(cost_minimization_function, x_o, niter=num_iterations,
+    #                            minimizer_kwargs={"args": (G_ex, G_bar, E_vec, W, E_var), "method": method})
+    #     epsilon_a = np.copy(results.fun)
+    #     GAD_score_tot.append(epsilon_a)
+    #     epsilon_delta = list(range(0, n_f))
+    #     for nn in epsilon_delta:
+    #         print(nn)
+    #         W = np.zeros((n, n))
+    #         np.fill_diagonal(W, 1)
+    #         zero_row = np.zeros(np.shape(W[0, :]))
+    #         W[3 * nn, :] = zero_row
+    #         W[3 * nn + 1, :] = zero_row
+    #         W[3 * nn + 2, :] = zero_row
+    #         results_nn = basinhopping(cost_minimization_function, x_o, niter=num_iterations,
+    #                                   minimizer_kwargs={"args": (G_ex, G_bar, E_vec, W, E_var), "method": method})
+    #         cost_value_nn = np.copy(results_nn.fun)
+    #         epsilon_delta[nn] = np.absolute(cost_value_nn - epsilon_a)
+    #     end = timer()
+    #     print('Compared Train Sample:' + str(sample))
+    #     print('Time taken: ' + str(end - start) + ' (s)')
+    #     GAD_score.append(epsilon_delta)
+    #
+    # print(T1)
+    # print(T2)
 
 
 if __name__ == '__main__':

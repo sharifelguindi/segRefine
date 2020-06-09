@@ -195,25 +195,32 @@ def compute_comparison(ref, test, imageSize, sliceLocations, coordTransform):
     for z in np.arange(min_z, max_z + pxSpacing[2], pxSpacing[2]):
         rndDig = 3
         z = np.round(z, rndDig)
+
         if z <= sliceLocations[-1]:
             slicePts_ref = [item for item in ref if item[0] == z]
             slicePts_test = [item for item in test if item[0] == z]
-            zLoc = np.where(np.round(coordTransform[2, 3, :], rndDig) == z)
+            zLocValue = min(coordTransform[2, 3, :], key=lambda x: abs(x - z))
+            zLoc = np.where(coordTransform[2, 3, :] == zLocValue)
+            pxTransform = coordTransform[:, :, zLoc[0][0]]
 
-            # Verify z location through continual rounding for robustness
-            if zLoc[0][0] >= 0:
-                pxTransform = coordTransform[:, :, zLoc[0][0]]
-            else:
-                rndDig = 2
-                z = np.round(z, rndDig)
-                zLoc = np.where(np.round(coordTransform[2, 3, :], rndDig) == z)
-                if zLoc[0][0] >= 0:
-                    pxTransform = coordTransform[:, :, zLoc[0][0]]
-                else:
-                    rndDig = 1
-                    z = np.round(z, rndDig)
-                    zLoc = np.where(np.round(coordTransform[2, 3, :], rndDig) == z)
-                    pxTransform = coordTransform[:, :, zLoc[0][0]]
+            # # Verify z location through continual rounding for robustness
+            # if zLoc[0]:
+            #     pxTransform = coordTransform[:, :, zLoc[0][0]]
+            # else:
+            #     rndDig = 2
+            #     z = np.round(z, rndDig)
+            #     zLoc = np.where(np.round(coordTransform[2, 3, :], rndDig) == z)
+            #     if zLoc[0]:
+            #         pxTransform = coordTransform[:, :, zLoc[0][0]]
+            #     else:
+            #         rndDig = 1
+            #         z = np.round(z, rndDig)
+            #         zLoc = np.where(np.round(coordTransform[2, 3, :], rndDig) == z)
+            #         if zLoc[0]:
+            #             pxTransform = coordTransform[:, :, zLoc[0][0]]
+            #         else:
+            #             zLoc = np.where(np.round(coordTransform[2, 3, :]) == z)
+            #             pxTransform = coordTransform[:, :, zLoc[0][0]]
 
             pxTransform_inv = np.linalg.pinv(pxTransform)
             refpolygon = None
@@ -381,7 +388,7 @@ def compute_comparison(ref, test, imageSize, sliceLocations, coordTransform):
     return results, mask_ref, mask_test
 
 
-def store_rtss_as_structureinstance(rtssFilepath, contourList, contourList_alt, as_polygon=False):
+def store_rtss_as_structureinstance(rtssFilepath, contourList, contourList_alt, contourList_var, as_polygon=False):
     rtss = pydicom.read_file(rtssFilepath)
     rndDig = 3
     # Logic for matching structures compared with master list (contourList)
@@ -409,12 +416,20 @@ def store_rtss_as_structureinstance(rtssFilepath, contourList, contourList_alt, 
 
                 if structName.upper()[-2:] == '_F':
                     structName = structName[0:-2]
+                if structName.upper()[-1] == '1':
+                    if 'FIDUCIAL' in structName.upper():
+                        structName = structName
+                    else:
+                        structName = structName[0:-1]
                 if contourList:
                     for name in contourList:
                         if name.upper() == structName.upper():
                             numberOfMatches = numberOfMatches + 1
                             lastMatchName = name
                         elif contourList_alt[alt_name_index].upper() == structName.upper():
+                            numberOfMatches = numberOfMatches + 1
+                            lastMatchName = name
+                        elif contourList_var[alt_name_index].upper() == structName.upper():
                             numberOfMatches = numberOfMatches + 1
                             lastMatchName = name
                         alt_name_index = alt_name_index + 1

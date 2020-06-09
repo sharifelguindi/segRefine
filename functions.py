@@ -402,8 +402,26 @@ def loadContourQAImg(contourFile_ref, contourFile_test, scanFile, HDF5_DIR, retu
     imageSize = scanData['imageSize']
     sliceLocations = scanData['sliceLocations']
     scan = scanData['imageMatrix'] + scanData['pixelConversion'][0]
-    ref = load(open(os.path.join(HDF5_DIR, contourFile_ref), 'rb'), compression='gzip')
-    test = load(open(os.path.join(HDF5_DIR, contourFile_test), 'rb'), compression='gzip')
+
+    if type(contourFile_ref) == str:
+        ref = load(open(os.path.join(HDF5_DIR, contourFile_ref), 'rb'), compression='gzip')
+    else:
+        ref = []
+    if type(contourFile_test) == str:
+        test = load(open(os.path.join(HDF5_DIR, contourFile_test), 'rb'), compression='gzip')
+    else:
+        test = []
+
+    # Structure was contoured, no auto-generated
+    if ref and not test:
+        test = ref.copy()
+        for k in range(0, len(test)):
+            test[k] = (test[k][0], [])
+    # Structure was auto-generated, but deleted
+    if test and not ref:
+        ref = test.copy()
+        for k in range(0, len(ref)):
+            ref[k] = (ref[k][0], [])
 
     max_z = max(max(ref, key=itemgetter(0))[0], max(test, key=itemgetter(0))[0])
     min_z = min(min(ref, key=itemgetter(0))[0], min(test, key=itemgetter(0))[0])
@@ -423,28 +441,30 @@ def loadContourQAImg(contourFile_ref, contourFile_test, scanFile, HDF5_DIR, retu
         pxTransform_inv = np.linalg.pinv(pxTransform)
 
         if slicePts_ref:
-            n_cur_pts = int(len(slicePts_ref[0][1]) / 3)
-            cur_contour = slicePts_ref[0][1]
-            cur_contour_2_d = []
-            for i in range(0, n_cur_pts):
-                coord = [float(cur_contour[i * 3]), float(cur_contour[i * 3 + 1]), float(cur_contour[i * 3 + 2]), 1]
-                pxCoord = np.matmul(pxTransform_inv, coord)
-                cur_contour_2_d.append((np.round(pxCoord[0]), np.round(pxCoord[1])))
-            img = Image.new('L', (512, 512), 0)
-            ImageDraw.Draw(img).polygon(cur_contour_2_d, outline=1, fill=fillValue)
-            mask_ref[np.where(sliceLocations == z), :, :, 0] = np.array(img)
+            if len(slicePts_ref[0][1]) >= 3:
+                n_cur_pts = int(len(slicePts_ref[0][1]) / 3)
+                cur_contour = slicePts_ref[0][1]
+                cur_contour_2_d = []
+                for i in range(0, n_cur_pts):
+                    coord = [float(cur_contour[i * 3]), float(cur_contour[i * 3 + 1]), float(cur_contour[i * 3 + 2]), 1]
+                    pxCoord = np.matmul(pxTransform_inv, coord)
+                    cur_contour_2_d.append((np.round(pxCoord[0]), np.round(pxCoord[1])))
+                img = Image.new('L', (512, 512), 0)
+                ImageDraw.Draw(img).polygon(cur_contour_2_d, outline=1, fill=fillValue)
+                mask_ref[np.where(sliceLocations == z), :, :, 0] = np.array(img)
 
         if slicePts_test:
-            n_cur_pts = int(len(slicePts_test[0][1]) / 3)
-            cur_contour = slicePts_test[0][1]
-            cur_contour_2_d = []
-            for i in range(0, n_cur_pts):
-                coord = [float(cur_contour[i * 3]), float(cur_contour[i * 3 + 1]), float(cur_contour[i * 3 + 2]), 1]
-                pxCoord = np.matmul(pxTransform_inv, coord)
-                cur_contour_2_d.append((np.round(pxCoord[0]), np.round(pxCoord[1])))
-            img = Image.new('L', (512, 512), 0)
-            ImageDraw.Draw(img).polygon(cur_contour_2_d, outline=1, fill=fillValue)
-            mask_test[np.where(sliceLocations == z), :, :, 0] = np.array(img)
+            if len(slicePts_test[0][1]) >= 3:
+                n_cur_pts = int(len(slicePts_test[0][1]) / 3)
+                cur_contour = slicePts_test[0][1]
+                cur_contour_2_d = []
+                for i in range(0, n_cur_pts):
+                    coord = [float(cur_contour[i * 3]), float(cur_contour[i * 3 + 1]), float(cur_contour[i * 3 + 2]), 1]
+                    pxCoord = np.matmul(pxTransform_inv, coord)
+                    cur_contour_2_d.append((np.round(pxCoord[0]), np.round(pxCoord[1])))
+                img = Image.new('L', (512, 512), 0)
+                ImageDraw.Draw(img).polygon(cur_contour_2_d, outline=1, fill=fillValue)
+                mask_test[np.where(sliceLocations == z), :, :, 0] = np.array(img)
 
     rmin, rmax, cmin, cmax, zmin, zmax = bbox2_3D(mask_ref + mask_test, pad)
     bbox = [rmin, rmax, cmin, cmax, zmin, zmax]
@@ -548,6 +568,54 @@ def plotTrainingProgress(modelDir, metric):
             data.plot(kind='line', x='checkPoint', y=col, ax=ax)
     plt.legend(fontsize='xx-small')
     plt.show()
+    return data
+
+
+def get_statistics(contourList, metricList, metricUnits, filename):
+
+    contourDatabase = "H:\\Treatment Planning\\Elguindi\\contourDatabase\\contourDB.xlsx"
+    db = pd.read_excel(contourDatabase, index=False)
+
+    db.index = db['SCAN_DATE']
+    columns = ['MRN', 'SCAN_DATE']
+    for contour in contourList:
+        for metric in metricList:
+            columns.append(contour.upper() + '_' + metric)
+
+    HN_data = db[columns]
+    data = HN_data.dropna(axis=0, how='all', subset=columns[2:])
+    total = len(data)
+    for contour in contourList:
+        contour_cols = [col for col in data.columns if contour in col]
+        contourData = data[contour_cols]
+        FN = total - np.count_nonzero(contourData[contour + '_3D DSC'].iloc[0:total])
+        TN = contourData[contour + '_3D DSC'].iloc[0:total].isna().sum()
+        contourData[contour + '_3D DSC'] = contourData[contour + '_3D DSC'].replace(0, np.nan)
+        contourData = contourData.dropna(how='any', axis=0)
+        for column in contourData:
+            data.loc['Means', column] = contourData[column].replace(0, np.nan).mean(skipna=True)
+            data.loc['StDev', column] = contourData[column].replace(0, np.nan).std(skipna=True)
+            data.loc['TN', column] = TN
+            data.loc['FN', column] = FN
+
+    data.to_excel(filename)
+
+
+    n = 0
+    for metric in metricList:
+        metricCols = []
+        for contour in contourList:
+            metricCols.append(contour + '_' + metric)
+        fig1, ax1 = plt.subplots()
+        ax1.set_title('Autosegmentation accuracy for HN', fontsize=6);
+        ax1.set_xlabel('OAR', fontsize=6)
+        ax1.set_ylabel(metric + ' ' + metricUnits[n])
+        boxplot = data.iloc[0:17, :].replace(0, np.nan).boxplot(column=metricCols, rot=20, fontsize=6)
+        plt.xticks(np.arange(1, len(contourList)+1), contourList)
+        figName = filename.replace(filename.split('\\')[-1], metric) + '.png'
+        plt.savefig(figName, dpi=600)
+        n = n + 1
+
     return data
 
 

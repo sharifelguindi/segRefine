@@ -16,49 +16,61 @@ def simnote_to_site(text):
 
     text = text.upper()
 
-    if ('PROSTATE' in text and not 'BRACHY' in text and not 'SBRT' in text and not 'OP' in text and not 'NODES' in text and not 'MODHYPOFX' in text):
+    if ('PROSTATE' in text and not 'BRACHY' in text and not 'SBRT' in text and not 'OP' in text
+            and not 'NODES' in text and not 'MODHYPOFX' in text):
         site = 'PROSTATE'
 
-    elif ('PROSTATE' in text and not 'BRACHY' in text and not 'SBRT' in text and not 'OP' in text and 'NODES' in text and not 'MODHYPOFX' in text):
+    elif ('PROSTATE' in text and not 'BRACHY' in text and not 'SBRT' in text and not 'OP' in text
+          and 'NODES' in text and not 'MODHYPOFX' in text):
         site = 'PROSTATE WITH NODES'
 
-    elif ('PROSTATE' in text and not 'BRACHY' in text and not 'SBRT' in text and not 'OP' in text and not'NODES' in text and 'MODHYPOFX' in text):
+    elif ('PROSTATE' in text and not 'BRACHY' in text and not 'SBRT' in text and not 'OP' in text
+          and not'NODES' in text and 'MODHYPOFX' in text):
         site = 'PROSTATE MODHYPO'
 
-    elif ('PROSTATE' in text and not 'BRACHY' in text and not 'SBRT' in text and not 'OP' in text and 'NODES' in text and 'MODHYPOFX' in text):
+    elif ('PROSTATE' in text and not 'BRACHY' in text and not 'SBRT' in text and not 'OP' in text
+          and 'NODES' in text and 'MODHYPOFX' in text):
         site = 'PROSTATE MODHYPO WITH NODES'
 
-    elif ('PROSTATE' in text and not 'BRACHY' in text and 'SBRT' in text and not 'OP' in text and not 'NODES' in text and not 'MODHYPOFX' in text):
+    elif ('PROSTATE' in text and not 'BRACHY' in text and 'SBRT' in text and not 'OP' in text
+          and not 'NODES' in text and not 'MODHYPOFX' in text):
         site = 'PROSTATE SBRT'
 
-    elif ('PROSTATE' in text and not 'BRACHY' in text and 'SBRT' in text and not 'OP' in text and 'NODES' in text and not 'MODHYPOFX' in text):
+    elif ('PROSTATE' in text and not 'BRACHY' in text and 'SBRT' in text and not 'OP' in text
+          and 'NODES' in text and not 'MODHYPOFX' in text):
         site = 'PROSTATE SBRT WITH NODES'
 
-    elif ('PROSTATE' in text and 'BRACHY' in text and 'SBRT' in text and not 'OP' in text and not 'NODES' in text and not 'MODHYPOFX' in text):
+    elif ('PROSTATE' in text and 'BRACHY' in text and 'SBRT' in text and not 'OP' in text
+          and not 'NODES' in text and not 'MODHYPOFX' in text):
         site = 'PROSTATE SBRT POST-BRACHY'
 
-    elif ('PROSTATE' in text and 'BRACHY' in text and 'SBRT' in text and not 'OP' in text and 'NODES' in text and not 'MODHYPOFX' in text):
+    elif ('PROSTATE' in text and 'BRACHY' in text and 'SBRT' in text and not 'OP' in text
+          and 'NODES' in text and not 'MODHYPOFX' in text):
         site = 'PROSTATE SBRT POST-BRACHY WITH NODES'
 
-    elif ('PROSTATE' in text and 'BRACHY' in text and not 'SBRT' in text and not 'OP' in text and not 'NODES' in text and not 'MODHYPOFX' in text):
+    elif ('PROSTATE' in text and 'BRACHY' in text and not 'SBRT' in text and not 'OP' in text
+          and not 'NODES' in text and not 'MODHYPOFX' in text):
         site = 'PROSTATE POST-BRACHY'
 
-    elif ('PROSTATE' in text and 'BRACHY' in text and not 'SBRT' in text and not 'OP' in text and 'NODES' in text and not 'MODHYPOFX' in text):
+    elif ('PROSTATE' in text and 'BRACHY' in text and not 'SBRT' in text and not 'OP' in text
+          and 'NODES' in text and not 'MODHYPOFX' in text):
         site = 'PROSTATE POST-BRACHY WITH NODES'
 
-    elif ('PROSTATE' in text or 'FOLEY' in text and not 'BRACHY' in text and not 'SBRT' in text and 'OP' in text and not 'NODES' in text and not 'MODHYPOFX' in text):
+    elif ('PROSTATE' in text or 'FOLEY' in text and not 'BRACHY' in text and not 'SBRT' in text and 'OP' in text
+          and not 'NODES' in text and not 'MODHYPOFX' in text):
         site = 'PROSTATE BED'
 
-    elif ('PROSTATE' in text or 'FOLEY' in text and not 'BRACHY' in text and not 'SBRT' in text and 'OP' in text and 'NODES' in text and not 'MODHYPOFX' in text):
+    elif ('PROSTATE' in text or 'FOLEY' in text and not 'BRACHY' in text and not 'SBRT' in text and 'OP' in text
+          and 'NODES' in text and not 'MODHYPOFX' in text):
         site = 'PROSTATE BED WITH NODES'
 
-    elif ('H&N' in text or 'NECK' in text or 'HEAD' in text or 'PHARYNX' in text or 'LARYNX' in text or 'ORAL' in text or 'NASO' in text or 'ORO' in text or 'NOSE' in text):
+    elif ('H&N' in text or 'NECK' in text or 'HEAD' in text or 'PHARYNX' in text or 'LARYNX' in text or 'ORAL' in text
+          or 'NASO' in text or 'ORO' in text or 'NOSE' in text or 'TONGUE' in text):
         if 'FEMORAL' in text or 'PANCREATIC' in text:
             site = 'UNDEFINED'
         else:
             site = 'HEAD AND NECK'
-
-    elif ('BREAST' in text or 'CHESTWALL' in text):
+    elif 'BREAST' in text or 'CHESTWALL' in text:
         site = 'BREAST'
     else:
         site = 'UNDEFINED'
@@ -77,7 +89,7 @@ def fix_mrn(mrn, length):
 def main():
     print('This file consists of helper functions for parsing HIS feeds')
     # rawDataFeed: path to data from HIS scheduling that needs processing
-    rawDatafeed = 'H:\\Treatment Planning\\Elguindi\\HN_log\\HIS.txt'
+    rawDatafeed = 'H:\\Treatment Planning\\Elguindi\\simLog\\HIS.txt'
     data = pd.read_csv(rawDatafeed, sep='\t', lineterminator='\r', header=None)
     columns = ['SIMDATE', 'SIMTIME', 'NAME', 'MRN', 'PROVIDER', 'SIMNOTE', 'SIMSITE', 'SIMLOC', 'SITE']
     data.columns = columns
@@ -93,8 +105,10 @@ def main():
     print('Creating DateTime Objects...')
     i = 0
     for time in data.SIMTIME:
-        date_time_object = datetime.datetime.combine(datetime.datetime.strptime(data.SIMDATE[i].strip('\n').strip(), '%m/%d/%Y'),
-                                                     datetime.datetime.strptime(time.strip(), '%I:%M %p').time())
+        date_time_object = datetime.datetime.combine(datetime.datetime.strptime(data.SIMDATE[i].strip('\n').strip(),
+                                                                                '%m/%d/%Y'),
+                                                     datetime.datetime.strptime(time.strip(),
+                                                                                '%I:%M %p').time())
         data.DATETIME[i] = date_time_object
         i = i + 1
 
@@ -105,8 +119,8 @@ def main():
         data.MRN[i] = fix_mrn(mrn, 8)
         i = i + 1
 
-    data.loc[data['SITE'].str.contains('PROSTATE')].to_excel('H:\\Treatment Planning\\Elguindi\\HN_log\\PROSTATE.xlsx')
-    data.loc[data['SITE'].str.contains('HEAD AND NECK')].to_excel('H:\\Treatment Planning\\Elguindi\\HN_log\\HN.xlsx')
+    data.loc[data['SITE'].str.contains('PROSTATE')].to_excel('H:\\Treatment Planning\\Elguindi\\simLog\\PROSTATE.xlsx')
+    data.loc[data['SITE'].str.contains('HEAD AND NECK')].to_excel('H:\\Treatment Planning\\Elguindi\\simLog\\HN.xlsx')
 
 
     # print('Remove UNDEFINED sites....')
